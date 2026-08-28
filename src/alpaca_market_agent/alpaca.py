@@ -1,0 +1,98 @@
+from datetime import UTC, date, datetime, time, timedelta
+from typing import Any
+from zoneinfo import ZoneInfo
+
+import httpx
+
+from alpaca_market_agent.config import Settings
+from alpaca_market_agent.models import Bar
+
+ET = ZoneInfo("America/New_York")
+
+
+class AlpacaClient:
+    def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None) -> None:
+        self.settings = settings
+        self.client = client or httpx.AsyncClient(timeout=30)
+        self._owns_client = client is None
+
+    async def close(self) -> None:
+        if self._owns_client:
+            await self.client.aclose()
+
+    async def previous_session(self, plan_date: date) -> tuple[date, time]:
+        start = plan_date - timedelta(days=14)
+        response = await self.client.get(
+            f"{self.settings.alpaca_trading_url}/v2/calendar",
+            headers=self.settings.alpaca_headers(),
+            params={"start": start.isoformat(), "end": plan_date.isoformat()},
+        )
+        response.raise_for_status()
+        sessions = [
+            item for item in response.json() if date.fromisoformat(item["date"]) < plan_date
+        ]
+        if not sessions:
+            raise ValueError(f"no prior trading session found before {plan_date}")
+        session = sessions[-1]
+        return date.fromisoformat(session["date"]), time.fromisoformat(session["close"])
+
+    async def stock_bars(
+        self,
+        *,
+        start: datetime,
+        end: datetime,
+        feed: str,
+    ) -> list[Bar]:
+        params: dict[str, Any] = {
+            "symbols": "SPY",
+            "timeframe": "1Min",
+            "start": start.astimezone(UTC).isoformat().replace("+00:00", "Z"),
+            "end": end.astimezone(UTC).isoformat().replace("+00:00", "Z"),
+            "feed": feed,
+            "limit": 10_000,
+            "sort": "asc",
+        }
+        bars: list[Bar] = []
+        while True:
+            response = await self.client.get(
+                f"{self.settings.alpaca_data_url}/v2/stocks/bars",
+                headers=self.settings.alpaca_headers(),
+                params=params,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            bars.extend(self._parse_bar(item) for item in payload.get("bars", {}).get("SPY", []))
+            page_token = payload.get("next_page_token")
+            if not page_token:
+                return bars
+            params["page_token"] = page_token
+
+    async def narrative_bars(
+        self,
+        plan_date: date,
+    ) -> tuple[date, int, list[Bar], list[Bar]]:
+        source_date, source_close = await self.previous_session(plan_date)
+        source_open_at = datetime.combine(source_date, time(9, 30), ET)
+        source_close_at = datetime.combine(source_date, source_close, ET)
+        expected_bars = int((source_close_at - source_open_at).total_seconds() // 60)
+        prior_bars = await self.stock_bars(start=source_open_at, end=source_close_at, feed="sip")
+        prior_bars = [
+            bar for bar in prior_bars if source_open_at <= bar.timestamp < source_close_at
+        ]
+
+        opening_start = datetime.combine(plan_date, time(9, 30), ET)
+        opening_end = datetime.combine(plan_date, time(9, 35), ET)
+        opening_bars = await self.stock_bars(start=opening_start, end=opening_end, feed="iex")
+        opening_bars = [bar for bar in opening_bars if opening_start <= bar.timestamp < opening_end]
+        return source_date, expected_bars, prior_bars, opening_bars
+
+    @staticmethod
+    def _parse_bar(item: dict[str, Any]) -> Bar:
+        return Bar(
+            timestamp=datetime.fromisoformat(item["t"].replace("Z", "+00:00")),
+            open=item["o"],
+            high=item["h"],
+            low=item["l"],
+            close=item["c"],
+            volume=item.get("v", 0),
+        )

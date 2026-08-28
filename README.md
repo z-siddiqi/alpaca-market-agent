@@ -16,9 +16,10 @@ experiment.
 
 The project is in early implementation. Account access, market-data paths,
 option-chain retrieval, Cloudflare AI Gateway, Alpaca MCP, and a paper option
-order lifecycle have been verified. A first Python service now generates and
-stores the prior-session narrative in Firestore; the autonomous trading loop has
-not started.
+order lifecycle have been verified. The Python service generates and stores the
+prior-session narrative, assembles live turn context, and runs a validated Claude
+evaluation with targeted Alpaca MCP tools. Decisions are stored in Firestore.
+Paper order submission remains disabled by default and is not scheduled yet.
 
 ## Initial scope
 
@@ -31,7 +32,7 @@ not started.
 - explicit trading policy and direct Alpaca MCP paper execution
 - persistent, replayable decision and order traces
 
-The MVP excludes 0DTE contracts, short premium, multiple underlyings, autonomous
+The initial version excludes 0DTE contracts, short premium, multiple underlyings, autonomous
 rolls, and live-money trading.
 
 ## Architecture
@@ -68,6 +69,16 @@ map. Firestore uses Application Default Credentials locally and the Cloud Run
 service account when deployed. Create the project's default Firestore database
 in Native mode before running the endpoint, and set `GCP_PROJECT_ID` when it is
 not the project selected by your local credentials.
+
+Run one agent evaluation with:
+
+```bash
+curl -X POST http://localhost:8000/ticks/evaluate
+```
+
+The endpoint assembles its context internally, allows targeted Alpaca MCP reads,
+and stores one immutable decision per five-minute slot. MCP order tools are
+model-visible but rejected locally unless `ORDER_SUBMISSION_ENABLED=true`.
 
 ## Documentation
 

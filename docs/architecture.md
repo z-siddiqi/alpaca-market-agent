@@ -124,8 +124,8 @@ delayed requests, and manual invocations do not depend on cron being market-awar
 
 | Purpose | Schedule | Endpoint | Status |
 | --- | --- | --- | --- |
-| Daily narrative | 09:35 ET weekdays | `POST /narratives/generate` | Endpoint implemented; job not provisioned |
-| Agent evaluation | Every five minutes during the RTH window | `POST /ticks/evaluate` | Planned |
+| Daily narrative | 09:35 ET weekdays | `POST /narratives/generate` | Provisioned |
+| Agent evaluation | Every five minutes during the RTH window | `POST /ticks/evaluate` | Implemented, unscheduled |
 | Normal-session close backstop | 15:45 ET weekdays | `POST /positions/flatten` | Planned |
 
 The tick endpoint will acquire a Firestore lease keyed by trading date and

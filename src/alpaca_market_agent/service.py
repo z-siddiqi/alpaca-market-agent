@@ -4,17 +4,23 @@ from datetime import date
 from fastapi import FastAPI, HTTPException
 from httpx import HTTPError
 
+from alpaca_market_agent.agent import AgentEvaluator
 from alpaca_market_agent.alpaca import AlpacaClient
 from alpaca_market_agent.config import Settings
-from alpaca_market_agent.models import GenerateNarrativeRequest, NarrativeRecord
+from alpaca_market_agent.mcp import AlpacaMcpClient
+from alpaca_market_agent.models import DecisionRecord, GenerateNarrativeRequest, NarrativeRecord
 from alpaca_market_agent.narrative import NarrativeGenerator, narrative_date
 from alpaca_market_agent.profile import build_opening_context, build_session_perception
-from alpaca_market_agent.storage import NarrativeStore
+from alpaca_market_agent.storage import DecisionStore, NarrativeStore
+from alpaca_market_agent.tick import TickContextBuilder, tick_id
 
 settings = Settings()
 alpaca = AlpacaClient(settings)
 generator = NarrativeGenerator(settings)
+evaluator = AgentEvaluator(settings)
 store = NarrativeStore(settings.gcp_project_id)
+decision_store = DecisionStore(settings.gcp_project_id)
+tick_context_builder = TickContextBuilder(alpaca, store)
 
 
 @asynccontextmanager
@@ -22,7 +28,9 @@ async def lifespan(_app: FastAPI):
     yield
     await alpaca.close()
     await generator.close()
+    await evaluator.close()
     store.close()
+    decision_store.close()
 
 
 app = FastAPI(title="Alpaca Market Agent", version="0.1.0", lifespan=lifespan)
@@ -71,3 +79,21 @@ async def generate_narrative(request: GenerateNarrativeRequest) -> NarrativeReco
         raise HTTPException(status_code=409, detail=str(error)) from error
 
     return await store.put(narrative)
+
+
+@app.post("/ticks/evaluate", response_model=DecisionRecord)
+async def evaluate_tick() -> DecisionRecord:
+    try:
+        context = await tick_context_builder.build()
+        current_tick_id = tick_id(context.evaluated_at)
+        existing = await decision_store.get(current_tick_id)
+        if existing is not None:
+            return existing
+        async with AlpacaMcpClient(settings) as tools:
+            record = await evaluator.evaluate(current_tick_id, context, tools)
+        return await decision_store.put(record)
+    except HTTPError as error:
+        detail = error.response.text if error.response is not None else str(error)
+        raise HTTPException(status_code=502, detail=detail) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error

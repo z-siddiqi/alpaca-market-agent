@@ -42,10 +42,11 @@ class AlpacaClient:
         start: datetime,
         end: datetime,
         feed: str,
+        timeframe: str = "1Min",
     ) -> list[Bar]:
         params: dict[str, Any] = {
             "symbols": "SPY",
-            "timeframe": "1Min",
+            "timeframe": timeframe,
             "start": start.astimezone(UTC).isoformat().replace("+00:00", "Z"),
             "end": end.astimezone(UTC).isoformat().replace("+00:00", "Z"),
             "feed": feed,
@@ -66,6 +67,48 @@ class AlpacaClient:
             if not page_token:
                 return bars
             params["page_token"] = page_token
+
+    async def trading_clock(self) -> dict[str, Any]:
+        response = await self.client.get(
+            f"{self.settings.alpaca_trading_url}/v2/clock",
+            headers=self.settings.alpaca_headers(),
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def account(self) -> dict[str, Any]:
+        response = await self.client.get(
+            f"{self.settings.alpaca_trading_url}/v2/account",
+            headers=self.settings.alpaca_headers(),
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def positions(self) -> list[dict[str, Any]]:
+        response = await self.client.get(
+            f"{self.settings.alpaca_trading_url}/v2/positions",
+            headers=self.settings.alpaca_headers(),
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def open_orders(self) -> list[dict[str, Any]]:
+        response = await self.client.get(
+            f"{self.settings.alpaca_trading_url}/v2/orders",
+            headers=self.settings.alpaca_headers(),
+            params={"status": "open", "limit": 500, "nested": "true"},
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def stock_snapshot(self) -> dict[str, Any]:
+        response = await self.client.get(
+            f"{self.settings.alpaca_data_url}/v2/stocks/snapshots",
+            headers=self.settings.alpaca_headers(),
+            params={"symbols": "SPY", "feed": "iex"},
+        )
+        response.raise_for_status()
+        return response.json().get("SPY", {})
 
     async def narrative_bars(
         self,

@@ -14,6 +14,11 @@ class Settings(BaseSettings):
     ai_gateway_token: SecretStr | None = None
     ai_gateway_id: str = "default"
     narrative_model: str = "anthropic/claude-sonnet-4-5"
+    agent_model: str = "anthropic/claude-sonnet-4-5"
+
+    alpaca_paper_trade: bool = True
+    order_submission_enabled: bool = False
+    max_agent_tool_calls: int = 6
 
     gcp_project_id: str | None = None
 

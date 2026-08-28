@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.alias_generators import to_camel
@@ -143,3 +143,169 @@ class NarrativeRecord(NarrativeDraft):
 
 class GenerateNarrativeRequest(BaseModel):
     plan_date: date | None = None
+
+
+class CamelModel(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+
+class MarketClockState(CamelModel):
+    timestamp: datetime
+    is_open: bool
+    next_open: datetime
+    next_close: datetime
+
+
+class AccountState(CamelModel):
+    status: str
+    currency: str
+    equity: float
+    session_starting_equity: float
+    daily_equity_pnl: float
+    daily_equity_pnl_percent: float
+    daily_loss_floor: float
+    daily_loss_headroom: float
+    buying_power: float
+    options_buying_power: float
+    cash: float
+    account_blocked: bool
+    trading_blocked: bool
+    trade_suspended_by_user: bool
+
+
+class PositionState(CamelModel):
+    symbol: str
+    asset_class: str
+    side: str
+    quantity: float
+    average_entry_price: float
+    current_price: float
+    market_value: float
+    cost_basis: float
+    unrealized_pnl: float
+    unrealized_pnl_percent: float
+
+
+class OrderState(CamelModel):
+    order_id: str
+    client_order_id: str
+    symbol: str
+    asset_class: str
+    side: str
+    order_type: str
+    time_in_force: str
+    quantity: float
+    filled_quantity: float
+    limit_price: float | None
+    status: str
+    submitted_at: datetime | None
+
+
+class LatestTradeState(CamelModel):
+    timestamp: datetime
+    price: float
+    size: float
+
+
+class LatestQuoteState(CamelModel):
+    timestamp: datetime
+    bid: float
+    ask: float
+    bid_size: float
+    ask_size: float
+
+
+class LiveMarketState(CamelModel):
+    symbol: Literal["SPY"] = "SPY"
+    feed: Literal["iex"] = "iex"
+    as_of: datetime
+    latest_trade: LatestTradeState | None
+    latest_quote: LatestQuoteState | None
+    trade_freshness_seconds: float | None
+    regular_session_open: float | None
+    regular_session_high: float | None
+    regular_session_low: float | None
+    latest_price: float | None
+    premarket_high: float | None
+    premarket_low: float | None
+    initial_balance_high: float | None
+    initial_balance_low: float | None
+    initial_balance_complete: bool
+    extension_up: float | None
+    extension_down: float | None
+    five_minute_atr14: float | None
+    latest_completed_bar_at: datetime | None
+    five_minute_bars_current: bool
+    recent_completed_bars: list[Bar]
+
+
+EntryWindowState = Literal[
+    "market_closed",
+    "entry_delay",
+    "eligible",
+    "closing_only",
+]
+
+
+class EntryWindow(CamelModel):
+    state: EntryWindowState
+    entry_opens_at: datetime
+    entry_closes_at: datetime
+    session_closes_at: datetime
+
+
+class TickContext(CamelModel):
+    evaluated_at: datetime
+    trading_date: date
+    paper_account: Literal[True] = True
+    clock: MarketClockState
+    entry_window: EntryWindow
+    entry_blockers: list[str]
+    account: AccountState
+    positions: list[PositionState]
+    working_orders: list[OrderState]
+    narrative: NarrativeRecord | None
+    market: LiveMarketState
+
+
+AgentAction = Literal["hold", "buy_call", "buy_put", "close_position"]
+AuctionState = Literal["balance", "discovery_up", "discovery_down", "unclear"]
+
+
+class AgentDecisionDraft(CamelModel):
+    action: AgentAction
+    auction_state: AuctionState
+    confidence: float = Field(ge=0, le=1)
+    thesis: str = Field(min_length=1, max_length=1_000)
+    active_references: list[str] = Field(default_factory=list, max_length=8)
+    evidence: list[str] = Field(default_factory=list, max_length=8)
+    entry_price: float | None = None
+    invalidation_price: float | None = None
+    target_price: float | None = None
+    option_symbol: str | None = None
+    quantity: int | None = Field(default=None, ge=1)
+    limit_price: float | None = Field(default=None, gt=0)
+    policy_checks: list[str] = Field(default_factory=list, max_length=20)
+    hold_reasons: list[str] = Field(default_factory=list, max_length=8)
+
+
+class AgentDecision(AgentDecisionDraft):
+    decision_id: str
+    evaluated_at: datetime
+
+
+class ToolCallRecord(CamelModel):
+    name: str
+    arguments: dict[str, Any]
+    result: Any
+    blocked: bool = False
+
+
+class DecisionRecord(CamelModel):
+    tick_id: str
+    trading_date: date
+    model: str
+    context: TickContext
+    decision: AgentDecision
+    tool_calls: list[ToolCallRecord]
+    created_at: datetime

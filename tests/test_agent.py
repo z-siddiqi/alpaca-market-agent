@@ -3,6 +3,8 @@ import json
 from datetime import UTC, date, datetime
 from typing import Any
 
+import pytest
+
 from alpaca_market_agent.agent import AgentEvaluator
 from alpaca_market_agent.config import Settings
 from alpaca_market_agent.mcp import AlpacaMcpClient
@@ -12,7 +14,9 @@ from alpaca_market_agent.models import (
     LiveMarketState,
     MarketClockState,
     TickContext,
+    ToolCallRecord,
 )
+from alpaca_market_agent.policy import validate_option_candidate
 
 
 class FakeResponse:
@@ -167,3 +171,37 @@ def test_mcp_write_is_blocked_when_submission_is_disabled() -> None:
 
     assert blocked
     assert result["submissionEnabled"] is False
+
+
+def test_option_candidate_rejects_delta_outside_band() -> None:
+    checked_at = datetime(2026, 8, 28, 14, 0, tzinfo=UTC)
+    snapshot_call = ToolCallRecord(
+        name="get_option_snapshot",
+        arguments={"symbol_or_symbols": "SPY260831P00771000"},
+        result={
+            "structuredContent": {
+                "data": {
+                    "snapshots": {
+                        "SPY260831P00771000": {
+                            "greeks": {"delta": -0.5268},
+                            "latestQuote": {
+                                "bp": 2.47,
+                                "ap": 2.56,
+                                "t": checked_at.isoformat(),
+                            },
+                        }
+                    }
+                }
+            }
+        },
+        called_at=checked_at,
+    )
+
+    with pytest.raises(ValueError, match="outside the 0.55-0.65 band"):
+        validate_option_candidate(
+            symbol="SPY260831P00771000",
+            quantity=19,
+            limit_price=2.52,
+            context=make_context(),
+            tool_calls=[snapshot_call],
+        )

@@ -289,9 +289,24 @@ class AgentDecisionDraft(CamelModel):
     hold_reasons: list[str] = Field(default_factory=list, max_length=8)
 
 
+class OptionEvidence(CamelModel):
+    symbol: str
+    expiration: date
+    right: Literal["call", "put"]
+    delta: float
+    bid: float
+    ask: float
+    midpoint: float
+    spread: float
+    spread_percent: float
+    quote_at: datetime
+    maximum_quantity: int
+
+
 class AgentDecision(AgentDecisionDraft):
     decision_id: str
     evaluated_at: datetime
+    option_evidence: OptionEvidence | None = None
 
 
 class ToolCallRecord(CamelModel):
@@ -299,6 +314,7 @@ class ToolCallRecord(CamelModel):
     arguments: dict[str, Any]
     result: Any
     blocked: bool = False
+    called_at: datetime | None = None
 
 
 class DecisionRecord(CamelModel):

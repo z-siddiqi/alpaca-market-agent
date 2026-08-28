@@ -10,9 +10,11 @@ from alpaca_market_agent.models import (
     AgentDecision,
     AgentDecisionDraft,
     DecisionRecord,
+    OptionEvidence,
     TickContext,
     ToolCallRecord,
 )
+from alpaca_market_agent.policy import validate_option_candidate
 
 SYSTEM_PROMPT = """You are an autonomous SPY options agent operating a dedicated Alpaca
 paper account. Treat trade as a two-sided auction. Inside established value normally
@@ -36,6 +38,9 @@ order_submission_disabled in holdReasons.
 
 The supplied entryWindow.state and entryBlockers are authoritative policy facts. Do not
 recalculate the session window from timestamp strings or invent a blocker that is absent.
+The preloaded account, positions, and workingOrders are fresh and authoritative for this
+turn; do not repeat those reads through MCP. Leave option fields null unless you inspected
+a current snapshot and found a candidate that satisfies every contract rule.
 
 Return only a JSON object matching the supplied decision schema. Record concise evidence,
 policy checks, and hold reasons. Prices for entry, invalidation, and target are SPY prices;
@@ -102,6 +107,7 @@ class AgentEvaluator:
                             arguments=arguments,
                             result=result,
                             blocked=blocked,
+                            called_at=datetime.now(UTC),
                         )
                     )
                     messages.append(
@@ -115,7 +121,7 @@ class AgentEvaluator:
 
             try:
                 draft = AgentDecisionDraft.model_validate(self._parse_json(message.get("content")))
-                self._validate_decision(draft, context)
+                option_evidence = self._validate_decision(draft, context, tool_calls)
             except (ValidationError, ValueError, json.JSONDecodeError) as error:
                 validation_error = str(error)
                 continue
@@ -125,6 +131,7 @@ class AgentEvaluator:
                 **draft.model_dump(),
                 decision_id=tick_id,
                 evaluated_at=evaluated_at,
+                option_evidence=option_evidence,
             )
             return DecisionRecord(
                 tick_id=tick_id,
@@ -195,7 +202,12 @@ class AgentEvaluator:
             raise ValueError("agent response must be a JSON object")
         return parsed
 
-    def _validate_decision(self, decision: AgentDecisionDraft, context: TickContext) -> None:
+    def _validate_decision(
+        self,
+        decision: AgentDecisionDraft,
+        context: TickContext,
+        tool_calls: list[ToolCallRecord],
+    ) -> OptionEvidence | None:
         entry = decision.action in {"buy_call", "buy_put"}
         decision_text = json.dumps(decision.model_dump(mode="json")).lower()
         invalid_window_claims = (
@@ -226,3 +238,15 @@ class AgentEvaluator:
             missing = [name for name, value in required.items() if value is None]
             if missing:
                 raise ValueError(f"entry decision is missing: {', '.join(missing)}")
+        option_fields = (decision.option_symbol, decision.quantity, decision.limit_price)
+        if any(value is not None for value in option_fields):
+            if any(value is None for value in option_fields):
+                raise ValueError("option symbol, quantity, and limit price must be set together")
+            return validate_option_candidate(
+                symbol=decision.option_symbol,
+                quantity=decision.quantity,
+                limit_price=decision.limit_price,
+                context=context,
+                tool_calls=tool_calls,
+            )
+        return None

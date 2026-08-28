@@ -8,7 +8,6 @@ from mcp.client.stdio import stdio_client
 from alpaca_market_agent.config import Settings
 
 READ_TOOLS = {
-    "get_all_positions",
     "get_open_position",
     "get_option_chain",
     "get_option_contract",
@@ -17,7 +16,6 @@ READ_TOOLS = {
     "get_option_snapshot",
     "get_order_by_client_id",
     "get_order_by_id",
-    "get_orders",
 }
 WRITE_TOOLS = {
     "cancel_order_by_id",

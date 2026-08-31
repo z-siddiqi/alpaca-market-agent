@@ -12,7 +12,7 @@ class Settings(BaseSettings):
 
     featherless_api_key: SecretStr | None = None
     featherless_base_url: str = "https://api.featherless.ai/v1"
-    narrative_model: str = "moonshotai/Kimi-K3"
+    narrative_model: str = "deepseek-ai/DeepSeek-V4-Pro"
     agent_model: str = "deepseek-ai/DeepSeek-V4-Flash"
 
     alpaca_paper_trade: bool = True

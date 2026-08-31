@@ -43,6 +43,8 @@ levels must use one of the existing Augur map shapes:
 - above_structure: kind, upsideTrigger, upsideTargets, supportRepair
 - below_structure: kind, downsideTrigger, downsideTargets, resistanceRepair
 
+All Targets and Repair fields must be JSON arrays, even when they contain one price.
+
 Every level must exactly match a price in allowed_references. Do not calculate,
 round, or invent levels. Targets must be nearest first. For a true gap beyond prior
 structure, continuation targets may be empty; do not fabricate a target."""
@@ -102,6 +104,8 @@ class NarrativeGenerator:
                     {"role": "user", "content": prompt + correction},
                 ],
                 "temperature": 0.2,
+                "max_tokens": 1_200,
+                "chat_template_kwargs": {"thinking": False},
             },
         )
         response.raise_for_status()

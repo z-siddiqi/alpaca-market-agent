@@ -152,7 +152,7 @@ delayed requests, and manual invocations do not depend on cron being market-awar
 | --- | --- | --- | --- |
 | Daily narrative | 09:35 ET weekdays | `POST /narratives/generate` | Provisioned |
 | Agent evaluation | Every five minutes during the RTH window | `POST /ticks/evaluate` | Enabled |
-| Normal-session close backstop | 15:45 ET weekdays | `POST /positions/flatten` | Planned |
+| Normal-session close backstop | 15:45 ET weekdays | `POST /positions/flatten` | Enabled |
 
 The tick endpoint will acquire a Firestore lease keyed by trading date and
 scheduled evaluation time before invoking the model. A retry or duplicate

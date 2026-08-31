@@ -1,9 +1,10 @@
 from datetime import UTC, datetime
 
-from alpaca_market_agent.models import EntryWindow, MarketClockState, PositionState
+from alpaca_market_agent.models import EntryWindow, MarketClockState, OrderState, PositionState
 from alpaca_market_agent.tick import (
     build_account_state,
     build_exit_reasons,
+    mandatory_order_cancellations,
     most_recent_position_close,
 )
 
@@ -79,3 +80,23 @@ def test_exit_controls_use_account_and_alpaca_state() -> None:
             }
         ]
     ) == datetime(2026, 8, 31, 19, 30, tzinfo=UTC)
+    order = OrderState(
+        order_id="entry-order",
+        client_order_id="entry-client-order",
+        symbol=position.symbol,
+        asset_class="us_option",
+        side="buy",
+        order_type="limit",
+        time_in_force="day",
+        quantity=15,
+        filled_quantity=0,
+        limit_price=4,
+        status="accepted",
+        submitted_at=datetime(2026, 8, 31, 19, 45, tzinfo=UTC),
+    )
+    assert mandatory_order_cancellations(
+        evaluated_at=now,
+        window=window,
+        account=account,
+        orders=[order],
+    ) == ["entry-order"]

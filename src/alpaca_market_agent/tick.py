@@ -21,6 +21,7 @@ from alpaca_market_agent.storage import NarrativeStore
 
 ET = ZoneInfo("America/New_York")
 POST_CLOSE_COOLDOWN = timedelta(minutes=10)
+ENTRY_ORDER_LIFETIME = timedelta(seconds=30)
 
 
 def _number(value: Any) -> float:
@@ -143,6 +144,26 @@ def build_exit_reasons(
             ):
                 reasons.append(f"premium_loss_limit:{position.symbol}")
     return reasons
+
+
+def mandatory_order_cancellations(
+    *,
+    evaluated_at: datetime,
+    window: EntryWindow,
+    account: AccountState,
+    orders: list[OrderState],
+) -> list[str]:
+    cancel_all_entries = window.state == "closing_only" or account.daily_loss_headroom <= 0
+    return [
+        order.order_id
+        for order in orders
+        if order.side == "buy"
+        and (
+            cancel_all_entries
+            or order.submitted_at is None
+            or evaluated_at - order.submitted_at >= ENTRY_ORDER_LIFETIME
+        )
+    ]
 
 
 def build_entry_window(clock: MarketClockState) -> EntryWindow:
@@ -338,6 +359,12 @@ class TickContextBuilder:
             account=account,
             positions=positions,
         )
+        cancel_order_ids = mandatory_order_cancellations(
+            evaluated_at=evaluated_at,
+            window=window,
+            account=account,
+            orders=orders,
+        )
 
         blockers: list[str] = []
         if window.state != "eligible":
@@ -368,6 +395,7 @@ class TickContextBuilder:
             entry_window=window,
             entry_blockers=blockers,
             exit_reasons=exit_reasons,
+            cancel_order_ids=cancel_order_ids,
             last_position_closed_at=last_position_closed_at,
             cooldown_ends_at=cooldown_ends_at,
             account=account,

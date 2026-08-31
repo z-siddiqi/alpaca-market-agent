@@ -50,12 +50,13 @@ The preloaded account, positions, and workingOrders are fresh and authoritative 
 turn; do not repeat those reads through MCP. Leave option fields null unless you inspected
 a current snapshot and found a candidate that satisfies every contract rule.
 
-The supplied exitReasons are authoritative and take priority over analysis. When any exit
-reason is present, cancel a working buy order, call close_position for every open position
-without a working sell order, and return close_position. The 35% premium-loss breaker and
-10% daily equity-loss limit are mandatory exits. When entryWindow.state is closing_only,
-do not open a position: cancel any working buy order and close any open position through
-Alpaca MCP. Do not leave a position or working order for the next session.
+The supplied exitReasons and cancelOrderIds are authoritative and take priority over
+analysis. Cancel every order in cancelOrderIds. When any exit reason is present, call
+close_position for every open position without a working sell order and return
+close_position. The 35% premium-loss breaker and 10% daily equity-loss limit are mandatory
+exits. When entryWindow.state is closing_only, do not open a position: cancel any working
+buy order and close any open position through Alpaca MCP. Do not leave a position or
+working order for the next session.
 
 Return only a JSON object matching the supplied decision schema. Record concise evidence,
 policy checks, and hold reasons. Prices for entry, invalidation, and target are SPY prices;
@@ -290,16 +291,13 @@ class AgentEvaluator:
                 raise ValueError(
                     "close_position was not called for: " + ", ".join(sorted(missing_closes))
                 )
-        if context.entry_window.state == "closing_only":
-            working_buys = {
-                order.order_id for order in context.working_orders if order.side == "buy"
-            }
+        if context.cancel_order_ids:
             cancelled_orders = {
                 str(call.arguments.get("order_id", ""))
                 for call in tool_calls
                 if call.name == "cancel_order_by_id" and not call.blocked
             }
-            missing_cancels = working_buys - cancelled_orders
+            missing_cancels = set(context.cancel_order_ids) - cancelled_orders
             if missing_cancels:
                 raise ValueError(
                     "cancel_order_by_id was not called for: " + ", ".join(sorted(missing_cancels))

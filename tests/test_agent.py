@@ -1,7 +1,11 @@
 import asyncio
+import json
 from datetime import UTC, date, datetime
 from typing import Any
 
+import httpx
+
+from alpaca_market_agent.alpaca import AlpacaClient
 from alpaca_market_agent.config import Settings
 from alpaca_market_agent.mcp import AlpacaMcpClient
 from alpaca_market_agent.models import (
@@ -164,3 +168,35 @@ def test_option_order_requires_matching_validation() -> None:
 
     _result, repeated_blocked = asyncio.run(client.call("place_option_order", order))
     assert repeated_blocked
+
+
+def test_native_option_stop_payload() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert json.loads(request.content) == {
+            "symbol": "SPY260901C00650000",
+            "qty": "15",
+            "side": "sell",
+            "type": "stop",
+            "time_in_force": "day",
+            "stop_price": "2.60",
+            "position_intent": "sell_to_close",
+            "client_order_id": "augur-stop-test",
+        }
+        return httpx.Response(200, json={"id": "stop-order"})
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client = AlpacaClient(
+        Settings(alpaca_api_key="key", alpaca_secret_key="secret"),
+        client=http,
+    )
+    result = asyncio.run(
+        client.submit_option_stop(
+            symbol="SPY260901C00650000",
+            quantity=15,
+            stop_price=2.6,
+            client_order_id="augur-stop-test",
+        )
+    )
+
+    assert result["id"] == "stop-order"
+    asyncio.run(http.aclose())

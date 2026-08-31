@@ -197,6 +197,8 @@ class OrderState(CamelModel):
     quantity: float
     filled_quantity: float
     limit_price: float | None
+    stop_price: float | None = None
+    position_intent: str | None = None
     status: str
     submitted_at: datetime | None
 

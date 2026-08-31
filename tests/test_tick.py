@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
 from alpaca_market_agent.models import EntryWindow, MarketClockState, OrderState, PositionState
+from alpaca_market_agent.risk import is_protective_stop, protective_stop_price
 from alpaca_market_agent.tick import (
     build_account_state,
     build_exit_reasons,
@@ -100,3 +101,14 @@ def test_exit_controls_use_account_and_alpaca_state() -> None:
         account=account,
         orders=[order],
     ) == ["entry-order"]
+    protective_stop = order.model_copy(
+        update={
+            "side": "sell",
+            "order_type": "stop",
+            "limit_price": None,
+            "stop_price": 2.6,
+            "position_intent": "sell_to_close",
+        }
+    )
+    assert protective_stop_price(position) == 2.6
+    assert is_protective_stop(protective_stop)

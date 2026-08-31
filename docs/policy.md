@@ -150,9 +150,11 @@ to top up after canceling it.
 The SPY thesis remains primary. The agent exits when the underlying invalidates
 the thesis, reaches the target, or develops newer contradictory structure.
 
-The premium circuit breaker is a secondary backstop. A fresh executable bid at
-or below 65% of average filled premium calls for an exit, although gaps and fill
-quality can produce a larger loss.
+The premium circuit breaker is a secondary backstop. After the entry lifecycle
+settles, the runtime submits a broker-native sell stop for the filled quantity at
+65% of average filled premium. Alpaca owns the trigger and converts the elected
+stop to a market exit, so gaps and fill quality can produce a larger loss. Each
+tick still checks the reconciled position price as a fallback.
 
 Normal exits begin with a limit at midpoint. After five seconds, the agent may
 replace it with a marketable limit at the refreshed bid and continues checking
@@ -165,7 +167,9 @@ greater risk.
 
 ## Direct tool responsibility
 
-The model can call Alpaca MCP tools to place, replace, cancel, and close orders.
+The model can call Alpaca MCP tools to place, replace, cancel, and close orders
+for thesis-driven actions. Broker protection, the daily-loss exit, and the
+session-close exit are runtime responsibilities and execute before a model call.
 Before each account-changing call it checks the latest reconciled order,
 position, and quote state, using a targeted MCP read when any value is stale or
 ambiguous. A new entry must exactly match a successful

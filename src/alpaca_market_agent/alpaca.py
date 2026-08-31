@@ -134,6 +134,31 @@ class AlpacaClient:
         response.raise_for_status()
         return response.json()
 
+    async def submit_option_stop(
+        self,
+        *,
+        symbol: str,
+        quantity: int,
+        stop_price: float,
+        client_order_id: str,
+    ) -> dict[str, Any]:
+        response = await self.client.post(
+            f"{self.settings.alpaca_trading_url}/v2/orders",
+            headers=self.settings.alpaca_headers(),
+            json={
+                "symbol": symbol,
+                "qty": str(quantity),
+                "side": "sell",
+                "type": "stop",
+                "time_in_force": "day",
+                "stop_price": f"{stop_price:.2f}",
+                "position_intent": "sell_to_close",
+                "client_order_id": client_order_id,
+            },
+        )
+        response.raise_for_status()
+        return response.json()
+
     async def stock_snapshot(self) -> dict[str, Any]:
         response = await self.client.get(
             f"{self.settings.alpaca_data_url}/v2/stocks/snapshots",

@@ -90,6 +90,7 @@ The normal entry sequence is:
 4. revise the candidate when validation returns a rejection
 5. submit the exact validated order through Alpaca MCP
 6. verify the resulting order by its deterministic client order ID
+7. reconcile the fill and submit a broker-native 35% premium-loss stop
 
 Alpaca-reported orders and positions remain execution truth. The runtime records
 each structured decision and model-visible tool call automatically.
@@ -116,6 +117,11 @@ account-changing call. The runtime looks up a deterministic client order ID
 before retrying a lost submission. Partial fills become the authoritative
 position immediately, and a position is not flat until Alpaca says it is. A
 durable lease prevents concurrent turns from managing the account.
+
+When positioned, the runtime reconciles the protective sell stop before invoking
+the model. Mandatory premium-loss, daily-loss, and session-close exits cancel
+that stop and close the position without model discretion. A thesis-driven model
+exit must likewise cancel the protective stop before requesting liquidation.
 
 ## Token economy
 

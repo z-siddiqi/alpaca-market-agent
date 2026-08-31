@@ -12,6 +12,7 @@ from alpaca_market_agent.mcp import AlpacaMcpClient
 from alpaca_market_agent.models import DecisionRecord, GenerateNarrativeRequest, NarrativeRecord
 from alpaca_market_agent.narrative import NarrativeGenerator, narrative_date
 from alpaca_market_agent.profile import build_opening_context, build_session_perception
+from alpaca_market_agent.risk import PositionRiskManager, forced_exit_record
 from alpaca_market_agent.storage import DecisionStore, NarrativeStore
 from alpaca_market_agent.tick import TickContextBuilder, build_entry_window, parse_clock, tick_id
 
@@ -22,6 +23,7 @@ evaluator = AgentEvaluator(settings)
 store = NarrativeStore(settings.gcp_project_id)
 decision_store = DecisionStore(settings.gcp_project_id)
 tick_context_builder = TickContextBuilder(alpaca, store)
+risk_manager = PositionRiskManager(settings, alpaca)
 
 
 @asynccontextmanager
@@ -88,11 +90,35 @@ async def evaluate_tick() -> DecisionRecord:
     try:
         context = await tick_context_builder.build()
         current_tick_id = tick_id(context.evaluated_at)
+        reconciliation = await risk_manager.reconcile(context)
+        context = reconciliation.context
         existing = await decision_store.get(current_tick_id)
         if existing is not None:
             return existing
+        if reconciliation.mandatory_exit:
+            return await decision_store.put(
+                forced_exit_record(
+                    tick_id=current_tick_id,
+                    reconciliation=reconciliation,
+                )
+            )
         async with AlpacaMcpClient(settings, context) as tools:
             record = await evaluator.evaluate(current_tick_id, context, tools)
+        post_model_risk_actions = []
+        if record.decision.action in {"buy_call", "buy_put"} and record.decision.option_symbol:
+            settled = await risk_manager.settle_entry(context, record.decision.option_symbol)
+            context = settled.context
+            post_model_risk_actions = settled.actions
+        record = record.model_copy(
+            update={
+                "context": context,
+                "tool_calls": [
+                    *reconciliation.actions,
+                    *record.tool_calls,
+                    *post_model_risk_actions,
+                ],
+            }
+        )
         return await decision_store.put(record)
     except HTTPError as error:
         detail = error.response.text if error.response is not None else str(error)
@@ -119,11 +145,19 @@ async def flatten_positions() -> dict[str, object]:
             }
 
         positions, orders = await asyncio.gather(alpaca.positions(), alpaca.open_orders())
+        protective_stops = [
+            order
+            for order in orders
+            if order.get("side") == "sell" and order.get("type") in {"stop", "stop_limit"}
+        ]
         working_sells = {
-            str(order.get("symbol", "")) for order in orders if order.get("side") == "sell"
+            str(order.get("symbol", ""))
+            for order in orders
+            if order.get("side") == "sell" and order.get("type") not in {"stop", "stop_limit"}
         }
         buy_orders = [order for order in orders if order.get("side") == "buy"]
-        await asyncio.gather(*(alpaca.cancel_order(str(order["id"])) for order in buy_orders))
+        cancelled_orders = [*buy_orders, *protective_stops]
+        await asyncio.gather(*(alpaca.cancel_order(str(order["id"])) for order in cancelled_orders))
         close_results = await asyncio.gather(
             *(
                 alpaca.close_position(str(position["symbol"]))
@@ -133,7 +167,7 @@ async def flatten_positions() -> dict[str, object]:
         )
         return {
             "status": "flatten_requested",
-            "ordersCancelled": [str(order["id"]) for order in buy_orders],
+            "ordersCancelled": [str(order["id"]) for order in cancelled_orders],
             "positionsClosed": [
                 str(position["symbol"])
                 for position in positions

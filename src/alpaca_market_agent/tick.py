@@ -99,6 +99,10 @@ def build_orders(payloads: list[dict[str, Any]]) -> list[OrderState]:
             limit_price=(
                 _number(payload["limit_price"]) if payload.get("limit_price") is not None else None
             ),
+            stop_price=(
+                _number(payload["stop_price"]) if payload.get("stop_price") is not None else None
+            ),
+            position_intent=payload.get("position_intent"),
             status=str(payload.get("status", "unknown")),
             submitted_at=payload.get("submitted_at"),
         )

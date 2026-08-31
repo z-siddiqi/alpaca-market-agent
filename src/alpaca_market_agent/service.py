@@ -74,7 +74,8 @@ async def generate_narrative(request: GenerateNarrativeRequest) -> NarrativeReco
         narrative = await generator.generate(perception, opening)
     except HTTPError as error:
         detail = error.response.text if error.response is not None else str(error)
-        raise HTTPException(status_code=502, detail=detail) from error
+        status_code = error.response.status_code if error.response is not None else 502
+        raise HTTPException(status_code=status_code, detail=detail) from error
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
 
@@ -94,6 +95,7 @@ async def evaluate_tick() -> DecisionRecord:
         return await decision_store.put(record)
     except HTTPError as error:
         detail = error.response.text if error.response is not None else str(error)
-        raise HTTPException(status_code=502, detail=detail) from error
+        status_code = error.response.status_code if error.response is not None else 502
+        raise HTTPException(status_code=status_code, detail=detail) from error
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error

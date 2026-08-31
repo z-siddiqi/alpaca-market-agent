@@ -54,6 +54,15 @@ class FakeTools:
         return {"name": name, "arguments": arguments, "contracts": []}, False
 
 
+def test_deepseek_is_the_default_model() -> None:
+    settings = Settings(_env_file=None, featherless_api_key="test-key")
+
+    assert settings.agent_model == "deepseek-ai/DeepSeek-V4-Flash"
+    assert settings.narrative_model == "moonshotai/Kimi-K3"
+    assert settings.model_url() == "https://api.featherless.ai/v1/chat/completions"
+    assert settings.model_headers()["authorization"] == "Bearer test-key"
+
+
 def make_context() -> TickContext:
     now = datetime(2026, 8, 28, 14, 0, tzinfo=UTC)
     return TickContext(
@@ -149,8 +158,7 @@ def test_agent_records_tool_call_and_hold() -> None:
     ]
     client = FakeModelClient(messages)
     settings = Settings(
-        cloudflare_account_id="account",
-        ai_gateway_token="token",
+        featherless_api_key="token",
         order_submission_enabled=False,
     )
     evaluator = AgentEvaluator(settings, client=client)  # type: ignore[arg-type]

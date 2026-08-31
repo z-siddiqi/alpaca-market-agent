@@ -1,3 +1,4 @@
+import asyncio
 import json
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -41,6 +42,10 @@ recalculate the session window from timestamp strings or invent a blocker that i
 The preloaded account, positions, and workingOrders are fresh and authoritative for this
 turn; do not repeat those reads through MCP. Leave option fields null unless you inspected
 a current snapshot and found a candidate that satisfies every contract rule.
+
+When entryWindow.state is closing_only, do not open a position. Cancel any working entry,
+close any open position through Alpaca MCP, and verify the account is flat. Do not leave a
+position or working order for the next session.
 
 Return only a JSON object matching the supplied decision schema. Record concise evidence,
 policy checks, and hold reasons. Prices for entry, invalidation, and target are SPY prices;
@@ -150,26 +155,42 @@ class AgentEvaluator:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        response = await self.client.post(
-            self.settings.gateway_url(),
-            headers=self.settings.gateway_headers(),
-            json={
-                "model": self.settings.agent_model,
-                "messages": messages,
-                "tools": tools,
-                "tool_choice": "auto",
-                "temperature": 0.1,
-                "max_tokens": 2_000,
-            },
-        )
-        response.raise_for_status()
+        response: httpx.Response | None = None
+        for attempt in range(2):
+            response = await self.client.post(
+                self.settings.model_url(),
+                headers=self.settings.model_headers(),
+                json={
+                    "model": self.settings.agent_model,
+                    "messages": messages,
+                    "tools": tools,
+                    "tool_choice": "auto",
+                    "temperature": 0.1,
+                },
+            )
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as error:
+                retryable = error.response.status_code == 429 or error.response.status_code >= 500
+                if attempt == 0 and retryable:
+                    retry_after = error.response.headers.get("retry-after", "")
+                    try:
+                        delay = min(30, max(1, float(retry_after)))
+                    except ValueError:
+                        delay = 5 if error.response.status_code == 429 else 1
+                    await asyncio.sleep(delay)
+                    continue
+                raise
+            break
+        if response is None:
+            raise ValueError("model provider returned no response")
         payload = response.json()
         try:
             message = payload["choices"][0]["message"]
         except (KeyError, IndexError, TypeError) as error:
-            raise ValueError("AI Gateway returned no agent message") from error
+            raise ValueError("model provider returned no agent message") from error
         if not isinstance(message, dict):
-            raise ValueError("AI Gateway returned an invalid agent message")
+            raise ValueError("model provider returned an invalid agent message")
         return message
 
     def _prompt(self, context: TickContext) -> str:

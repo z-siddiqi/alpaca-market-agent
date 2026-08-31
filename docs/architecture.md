@@ -9,7 +9,7 @@ flowchart LR
     scheduler["Cloud Scheduler"] --> runtime["Private Cloud Run service"]
     runtime --> context["Preloaded turn context"]
     state[("Durable state and audit")] --> context
-    context --> agent["Claude agent"]
+    context --> agent["DeepSeek V4 Flash agent"]
     agent <--> mcp["Alpaca MCP<br/>option data and orders"]
     mcp <--> account["Competition paper account"]
     runtime <--> account
@@ -47,7 +47,7 @@ and before entries become eligible at 09:40 ET. Its only market inputs are:
 - the first completed five-minute SPY bar from IEX
 
 The generator calculates the prior-session profile and renders the same compact
-AMT perception used by Augur. Claude returns the familiar `Contextual Analysis &
+AMT perception used by Augur. Kimi K3 returns the familiar `Contextual Analysis &
 Plan` and `Levels of Interest` Markdown plus one structured `balanced`,
 `above_structure`, or `below_structure` level map. Every selected price must
 match a calculated reference. The completed narrative and structured levels are
@@ -125,7 +125,7 @@ delayed requests, and manual invocations do not depend on cron being market-awar
 | Purpose | Schedule | Endpoint | Status |
 | --- | --- | --- | --- |
 | Daily narrative | 09:35 ET weekdays | `POST /narratives/generate` | Provisioned |
-| Agent evaluation | Every five minutes during the RTH window | `POST /ticks/evaluate` | Implemented, unscheduled |
+| Agent evaluation | Every five minutes during the RTH window | `POST /ticks/evaluate` | Enabled |
 | Normal-session close backstop | 15:45 ET weekdays | `POST /positions/flatten` | Planned |
 
 The tick endpoint will acquire a Firestore lease keyed by trading date and

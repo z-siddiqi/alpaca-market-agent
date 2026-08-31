@@ -15,11 +15,12 @@ experiment.
 ## Status
 
 The project is in early implementation. Account access, market-data paths,
-option-chain retrieval, Cloudflare AI Gateway, Alpaca MCP, and a paper option
+option-chain retrieval, Featherless inference, Alpaca MCP, and a paper option
 order lifecycle have been verified. The Python service generates and stores the
-prior-session narrative, assembles live turn context, and runs a validated Claude
+prior-session Kimi narrative, assembles live turn context, and runs a validated DeepSeek
 evaluation with targeted Alpaca MCP tools. Decisions are stored in Firestore.
-Paper order submission remains disabled by default and is not scheduled yet.
+Five-minute weekday evaluations are scheduled in GCP. Paper order submission
+is controlled by a deployment kill switch.
 
 ## Initial scope
 
@@ -42,9 +43,9 @@ turn, plus Alpaca MCP market and trading tools. The model can hold without makin
 tool calls, inspect the option chain only after forming a thesis, and submit,
 replace, cancel, or close paper orders itself.
 
-Claude Sonnet is the intended reasoning model, accessed through Cloudflare AI
-Gateway. Alpaca remains authoritative for market and account state; Alpaca MCP
-is the model's interface for targeted option data and paper trading.
+Kimi K3 generates the daily narrative and DeepSeek V4 Flash runs trading evaluations
+through Featherless. Alpaca remains authoritative for market and account state;
+Alpaca MCP is the model's interface for targeted option data and paper trading.
 
 ## Run the narrative slice
 
@@ -64,7 +65,7 @@ curl -X POST http://localhost:8000/narratives/generate \
 
 Pass `{"plan_date":"YYYY-MM-DD"}` to replay a completed session. The service
 uses historical SIP bars for the prior RTH profile, IEX bars for the opening gap,
-and Claude through Cloudflare AI Gateway for the Augur-style narrative and level
+and Kimi K3 through Featherless for the Augur-style narrative and level
 map. Firestore uses Application Default Credentials locally and the Cloud Run
 service account when deployed. Create the project's default Firestore database
 in Native mode before running the endpoint, and set `GCP_PROJECT_ID` when it is

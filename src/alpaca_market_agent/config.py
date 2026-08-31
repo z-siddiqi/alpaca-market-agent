@@ -10,11 +10,10 @@ class Settings(BaseSettings):
     alpaca_data_url: str = "https://data.alpaca.markets"
     alpaca_trading_url: str = "https://paper-api.alpaca.markets"
 
-    cloudflare_account_id: str | None = None
-    ai_gateway_token: SecretStr | None = None
-    ai_gateway_id: str = "default"
-    narrative_model: str = "anthropic/claude-sonnet-4-5"
-    agent_model: str = "anthropic/claude-sonnet-4-5"
+    featherless_api_key: SecretStr | None = None
+    featherless_base_url: str = "https://api.featherless.ai/v1"
+    narrative_model: str = "moonshotai/Kimi-K3"
+    agent_model: str = "deepseek-ai/DeepSeek-V4-Flash"
 
     alpaca_paper_trade: bool = True
     order_submission_enabled: bool = False
@@ -30,18 +29,13 @@ class Settings(BaseSettings):
             "APCA-API-SECRET-KEY": self.alpaca_secret_key.get_secret_value(),
         }
 
-    def gateway_url(self) -> str:
-        if self.cloudflare_account_id is None or self.ai_gateway_token is None:
-            raise ValueError("CLOUDFLARE_ACCOUNT_ID and AI_GATEWAY_TOKEN are required")
-        return (
-            "https://gateway.ai.cloudflare.com/v1/"
-            f"{self.cloudflare_account_id}/{self.ai_gateway_id}/compat/chat/completions"
-        )
+    def model_url(self) -> str:
+        return f"{self.featherless_base_url.rstrip('/')}/chat/completions"
 
-    def gateway_headers(self) -> dict[str, str]:
-        if self.ai_gateway_token is None:
-            raise ValueError("AI_GATEWAY_TOKEN is required")
+    def model_headers(self) -> dict[str, str]:
+        if self.featherless_api_key is None:
+            raise ValueError("FEATHERLESS_API_KEY is required")
         return {
-            "cf-aig-authorization": f"Bearer {self.ai_gateway_token.get_secret_value()}",
+            "authorization": f"Bearer {self.featherless_api_key.get_secret_value()}",
             "content-type": "application/json",
         }

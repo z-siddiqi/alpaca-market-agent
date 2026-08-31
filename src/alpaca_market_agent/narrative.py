@@ -93,8 +93,8 @@ class NarrativeGenerator:
                 "JSON object again:\n- " + "\n- ".join(errors)
             )
         response = await self.client.post(
-            self.settings.gateway_url(),
-            headers=self.settings.gateway_headers(),
+            self.settings.model_url(),
+            headers=self.settings.model_headers(),
             json={
                 "model": self.settings.narrative_model,
                 "messages": [
@@ -102,7 +102,6 @@ class NarrativeGenerator:
                     {"role": "user", "content": prompt + correction},
                 ],
                 "temperature": 0.2,
-                "max_tokens": 1_500,
             },
         )
         response.raise_for_status()
@@ -110,7 +109,7 @@ class NarrativeGenerator:
         try:
             return payload["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as error:
-            raise ValueError("AI Gateway returned no narrative content") from error
+            raise ValueError("model provider returned no narrative content") from error
 
     @staticmethod
     def _build_prompt(perception: SessionPerception, opening: OpeningContext) -> str:

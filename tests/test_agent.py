@@ -5,6 +5,7 @@ from typing import Any
 
 import httpx
 
+from alpaca_market_agent.agent import AgentEvaluator
 from alpaca_market_agent.alpaca import AlpacaClient
 from alpaca_market_agent.config import Settings
 from alpaca_market_agent.mcp import AlpacaMcpClient
@@ -200,3 +201,9 @@ def test_native_option_stop_payload() -> None:
 
     assert result["id"] == "stop-order"
     asyncio.run(http.aclose())
+
+
+def test_agent_extracts_fenced_json_after_analysis() -> None:
+    parsed = AgentEvaluator._parse_json('Analysis first.\n```json\n{"action":"hold"}\n```')
+
+    assert parsed == {"action": "hold"}

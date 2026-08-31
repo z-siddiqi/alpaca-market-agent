@@ -229,6 +229,18 @@ class AgentEvaluator:
         if not isinstance(content, str):
             raise ValueError("agent response must contain JSON text")
         stripped = content.strip()
+        if "```" in stripped:
+            blocks = stripped.split("```")
+            for block in blocks[1::2]:
+                candidate = block.strip()
+                if candidate.startswith("json"):
+                    candidate = candidate[4:].lstrip()
+                try:
+                    parsed = json.loads(candidate)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(parsed, dict):
+                    return parsed
         if stripped.startswith("```"):
             stripped = stripped.split("\n", 1)[1].rsplit("```", 1)[0]
             if stripped.lstrip().startswith("json"):

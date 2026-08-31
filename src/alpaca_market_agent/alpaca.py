@@ -101,6 +101,39 @@ class AlpacaClient:
         response.raise_for_status()
         return response.json()
 
+    async def closed_orders(self, *, after: datetime) -> list[dict[str, Any]]:
+        response = await self.client.get(
+            f"{self.settings.alpaca_trading_url}/v2/orders",
+            headers=self.settings.alpaca_headers(),
+            params={
+                "status": "closed",
+                "after": after.astimezone(UTC).isoformat().replace("+00:00", "Z"),
+                "direction": "desc",
+                "limit": 500,
+                "nested": "true",
+            },
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def cancel_order(self, order_id: str) -> None:
+        response = await self.client.delete(
+            f"{self.settings.alpaca_trading_url}/v2/orders/{order_id}",
+            headers=self.settings.alpaca_headers(),
+        )
+        if response.status_code != 404:
+            response.raise_for_status()
+
+    async def close_position(self, symbol: str) -> dict[str, Any] | None:
+        response = await self.client.delete(
+            f"{self.settings.alpaca_trading_url}/v2/positions/{symbol}",
+            headers=self.settings.alpaca_headers(),
+        )
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        return response.json()
+
     async def stock_snapshot(self) -> dict[str, Any]:
         response = await self.client.get(
             f"{self.settings.alpaca_data_url}/v2/stocks/snapshots",

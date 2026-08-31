@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import date
 
@@ -12,7 +13,7 @@ from alpaca_market_agent.models import DecisionRecord, GenerateNarrativeRequest,
 from alpaca_market_agent.narrative import NarrativeGenerator, narrative_date
 from alpaca_market_agent.profile import build_opening_context, build_session_perception
 from alpaca_market_agent.storage import DecisionStore, NarrativeStore
-from alpaca_market_agent.tick import TickContextBuilder, tick_id
+from alpaca_market_agent.tick import TickContextBuilder, build_entry_window, parse_clock, tick_id
 
 settings = Settings()
 alpaca = AlpacaClient(settings)
@@ -99,3 +100,48 @@ async def evaluate_tick() -> DecisionRecord:
         raise HTTPException(status_code=status_code, detail=detail) from error
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.post("/positions/flatten")
+async def flatten_positions() -> dict[str, object]:
+    if not settings.alpaca_paper_trade:
+        raise HTTPException(status_code=409, detail="forced flatten is paper-account only")
+    if not settings.order_submission_enabled:
+        raise HTTPException(status_code=409, detail="order submission is disabled")
+
+    try:
+        window = build_entry_window(parse_clock(await alpaca.trading_clock()))
+        if window.state != "closing_only":
+            return {
+                "status": "outside_closing_window",
+                "ordersCancelled": [],
+                "positionsClosed": [],
+            }
+
+        positions, orders = await asyncio.gather(alpaca.positions(), alpaca.open_orders())
+        working_sells = {
+            str(order.get("symbol", "")) for order in orders if order.get("side") == "sell"
+        }
+        buy_orders = [order for order in orders if order.get("side") == "buy"]
+        await asyncio.gather(*(alpaca.cancel_order(str(order["id"])) for order in buy_orders))
+        close_results = await asyncio.gather(
+            *(
+                alpaca.close_position(str(position["symbol"]))
+                for position in positions
+                if str(position["symbol"]) not in working_sells
+            )
+        )
+        return {
+            "status": "flatten_requested",
+            "ordersCancelled": [str(order["id"]) for order in buy_orders],
+            "positionsClosed": [
+                str(position["symbol"])
+                for position in positions
+                if str(position["symbol"]) not in working_sells
+            ],
+            "alpacaResponses": [result for result in close_results if result is not None],
+        }
+    except HTTPError as error:
+        detail = error.response.text if error.response is not None else str(error)
+        status_code = error.response.status_code if error.response is not None else 502
+        raise HTTPException(status_code=status_code, detail=detail) from error

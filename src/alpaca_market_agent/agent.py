@@ -50,9 +50,12 @@ The preloaded account, positions, and workingOrders are fresh and authoritative 
 turn; do not repeat those reads through MCP. Leave option fields null unless you inspected
 a current snapshot and found a candidate that satisfies every contract rule.
 
-When entryWindow.state is closing_only, do not open a position. Cancel any working entry,
-close any open position through Alpaca MCP, and verify the account is flat. Do not leave a
-position or working order for the next session.
+The supplied exitReasons are authoritative and take priority over analysis. When any exit
+reason is present, cancel a working buy order, call close_position for every open position
+without a working sell order, and return close_position. The 35% premium-loss breaker and
+10% daily equity-loss limit are mandatory exits. When entryWindow.state is closing_only,
+do not open a position: cancel any working buy order and close any open position through
+Alpaca MCP. Do not leave a position or working order for the next session.
 
 Return only a JSON object matching the supplied decision schema. Record concise evidence,
 policy checks, and hold reasons. Prices for entry, invalidation, and target are SPY prices;
@@ -266,6 +269,41 @@ class AgentEvaluator:
             missing = [name for name, value in required.items() if value is None]
             if missing:
                 raise ValueError(f"entry decision is missing: {', '.join(missing)}")
+        if context.exit_reasons and decision.action != "close_position":
+            raise ValueError("authoritative exit reasons require close_position")
+        if decision.action == "close_position":
+            working_sells = {
+                order.symbol for order in context.working_orders if order.side == "sell"
+            }
+            required_closes = {
+                position.symbol
+                for position in context.positions
+                if position.symbol not in working_sells
+            }
+            called_closes = {
+                str(call.arguments.get("symbol_or_asset_id", ""))
+                for call in tool_calls
+                if call.name == "close_position" and not call.blocked
+            }
+            missing_closes = required_closes - called_closes
+            if missing_closes:
+                raise ValueError(
+                    "close_position was not called for: " + ", ".join(sorted(missing_closes))
+                )
+        if context.entry_window.state == "closing_only":
+            working_buys = {
+                order.order_id for order in context.working_orders if order.side == "buy"
+            }
+            cancelled_orders = {
+                str(call.arguments.get("order_id", ""))
+                for call in tool_calls
+                if call.name == "cancel_order_by_id" and not call.blocked
+            }
+            missing_cancels = working_buys - cancelled_orders
+            if missing_cancels:
+                raise ValueError(
+                    "cancel_order_by_id was not called for: " + ", ".join(sorted(missing_cancels))
+                )
         option_fields = (decision.option_symbol, decision.quantity, decision.limit_price)
         if any(value is not None for value in option_fields):
             if any(value is None for value in option_fields):

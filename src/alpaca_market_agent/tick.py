@@ -16,10 +16,11 @@ from alpaca_market_agent.models import (
     PositionState,
     TickContext,
 )
-from alpaca_market_agent.policy import DAILY_LOSS_FRACTION
+from alpaca_market_agent.policy import DAILY_LOSS_FRACTION, PREMIUM_BREAKER_FRACTION
 from alpaca_market_agent.storage import NarrativeStore
 
 ET = ZoneInfo("America/New_York")
+POST_CLOSE_COOLDOWN = timedelta(minutes=10)
 
 
 def _number(value: Any) -> float:
@@ -102,6 +103,46 @@ def build_orders(payloads: list[dict[str, Any]]) -> list[OrderState]:
         )
         for payload in payloads
     ]
+
+
+def most_recent_position_close(payloads: list[dict[str, Any]]) -> datetime | None:
+    closes = [
+        datetime.fromisoformat(str(payload["filled_at"]).replace("Z", "+00:00"))
+        for payload in payloads
+        if payload.get("asset_class") == "us_option"
+        and payload.get("side") == "sell"
+        and payload.get("status") == "filled"
+        and payload.get("filled_at")
+    ]
+    return max(closes, default=None)
+
+
+def build_exit_reasons(
+    *,
+    clock: MarketClockState,
+    window: EntryWindow,
+    account: AccountState,
+    positions: list[PositionState],
+) -> list[str]:
+    if not positions:
+        return []
+
+    reasons: list[str] = []
+    if account.daily_loss_headroom <= 0:
+        reasons.append("daily_loss_limit")
+    if window.state == "closing_only":
+        reasons.append("session_close")
+    if clock.is_open:
+        for position in positions:
+            breaker_price = position.average_entry_price * (1 - PREMIUM_BREAKER_FRACTION)
+            if (
+                position.asset_class == "us_option"
+                and position.average_entry_price > 0
+                and position.current_price > 0
+                and position.current_price <= breaker_price
+            ):
+                reasons.append(f"premium_loss_limit:{position.symbol}")
+    return reasons
 
 
 def build_entry_window(clock: MarketClockState) -> EntryWindow:
@@ -248,6 +289,7 @@ class TickContextBuilder:
         account_task = asyncio.create_task(self.alpaca.account())
         positions_task = asyncio.create_task(self.alpaca.positions())
         orders_task = asyncio.create_task(self.alpaca.open_orders())
+        closed_orders_task = asyncio.create_task(self.alpaca.closed_orders(after=market_start))
         snapshot_task = asyncio.create_task(self.alpaca.stock_snapshot())
         narrative_task = asyncio.create_task(self.store.get(trading_date))
         bars_task = (
@@ -267,12 +309,14 @@ class TickContextBuilder:
             account_payload,
             position_payloads,
             order_payloads,
+            closed_order_payloads,
             snapshot,
             narrative,
         ) = await asyncio.gather(
             account_task,
             positions_task,
             orders_task,
+            closed_orders_task,
             snapshot_task,
             narrative_task,
         )
@@ -282,6 +326,18 @@ class TickContextBuilder:
         orders = build_orders(order_payloads)
         market = build_live_market_state(as_of=evaluated_at, bars=bars, snapshot=snapshot)
         window = build_entry_window(clock)
+        last_position_closed_at = most_recent_position_close(closed_order_payloads)
+        cooldown_ends_at = (
+            last_position_closed_at + POST_CLOSE_COOLDOWN
+            if last_position_closed_at is not None
+            else None
+        )
+        exit_reasons = build_exit_reasons(
+            clock=clock,
+            window=window,
+            account=account,
+            positions=positions,
+        )
 
         blockers: list[str] = []
         if window.state != "eligible":
@@ -294,6 +350,8 @@ class TickContextBuilder:
             blockers.append("position_open")
         if orders:
             blockers.append("working_order")
+        if cooldown_ends_at is not None and evaluated_at < cooldown_ends_at:
+            blockers.append("post_close_cooldown")
         if market.latest_price is None:
             blockers.append("missing_market_data")
         elif market.trade_freshness_seconds is None or market.trade_freshness_seconds > 10:
@@ -309,6 +367,9 @@ class TickContextBuilder:
             clock=clock,
             entry_window=window,
             entry_blockers=blockers,
+            exit_reasons=exit_reasons,
+            last_position_closed_at=last_position_closed_at,
+            cooldown_ends_at=cooldown_ends_at,
             account=account,
             positions=positions,
             working_orders=orders,

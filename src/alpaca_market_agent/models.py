@@ -261,6 +261,9 @@ class TickContext(CamelModel):
     clock: MarketClockState
     entry_window: EntryWindow
     entry_blockers: list[str]
+    exit_reasons: list[str] = Field(default_factory=list)
+    last_position_closed_at: datetime | None = None
+    cooldown_ends_at: datetime | None = None
     account: AccountState
     positions: list[PositionState]
     working_orders: list[OrderState]

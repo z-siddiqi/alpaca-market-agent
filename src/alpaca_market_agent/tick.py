@@ -16,6 +16,7 @@ from alpaca_market_agent.models import (
     PositionState,
     TickContext,
 )
+from alpaca_market_agent.policy import DAILY_LOSS_FRACTION
 from alpaca_market_agent.storage import NarrativeStore
 
 ET = ZoneInfo("America/New_York")
@@ -44,7 +45,7 @@ def build_account_state(payload: dict[str, Any]) -> AccountState:
     equity = _number(payload.get("equity"))
     starting_equity = _number(payload.get("last_equity"))
     daily_pnl = equity - starting_equity
-    loss_floor = starting_equity * 0.95
+    loss_floor = starting_equity * (1 - DAILY_LOSS_FRACTION)
     return AccountState(
         status=str(payload.get("status", "unknown")),
         currency=str(payload.get("currency", "USD")),
@@ -155,13 +156,9 @@ def build_live_market_state(
     )
     premarket = [bar for bar in completed if bar.timestamp.astimezone(ET).time() < time(9, 30)]
     regular = [
-        bar
-        for bar in completed
-        if time(9, 30) <= bar.timestamp.astimezone(ET).time() < time(16)
+        bar for bar in completed if time(9, 30) <= bar.timestamp.astimezone(ET).time() < time(16)
     ]
-    initial_balance = [
-        bar for bar in regular if bar.timestamp.astimezone(ET).time() < time(10, 30)
-    ]
+    initial_balance = [bar for bar in regular if bar.timestamp.astimezone(ET).time() < time(10, 30)]
 
     trade_payload = snapshot.get("latestTrade")
     latest_trade = (
@@ -198,9 +195,8 @@ def build_live_market_state(
         else None
     )
     latest_completed_at = regular[-1].timestamp if regular else None
-    bars_current = (
-        expected_latest_start is None
-        or (latest_completed_at is not None and latest_completed_at >= expected_latest_start)
+    bars_current = expected_latest_start is None or (
+        latest_completed_at is not None and latest_completed_at >= expected_latest_start
     )
 
     return LiveMarketState(
@@ -267,14 +263,18 @@ class TickContextBuilder:
             else None
         )
 
-        account_payload, position_payloads, order_payloads, snapshot, narrative = (
-            await asyncio.gather(
-                account_task,
-                positions_task,
-                orders_task,
-                snapshot_task,
-                narrative_task,
-            )
+        (
+            account_payload,
+            position_payloads,
+            order_payloads,
+            snapshot,
+            narrative,
+        ) = await asyncio.gather(
+            account_task,
+            positions_task,
+            orders_task,
+            snapshot_task,
+            narrative_task,
         )
         bars = await bars_task if bars_task is not None else []
         account = build_account_state(account_payload)

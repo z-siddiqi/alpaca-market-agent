@@ -293,6 +293,8 @@ class OptionEvidence(CamelModel):
     symbol: str
     expiration: date
     right: Literal["call", "put"]
+    active: bool
+    tradable: bool
     delta: float
     bid: float
     ask: float
@@ -300,7 +302,31 @@ class OptionEvidence(CamelModel):
     spread: float
     spread_percent: float
     quote_at: datetime
-    maximum_quantity: int
+    quantity: int
+    total_debit: float
+    breaker_loss: float
+
+
+class OptionValidationCheck(CamelModel):
+    name: str
+    passed: bool
+    detail: str
+
+
+class OptionOrderProposal(CamelModel):
+    action: Literal["buy_call", "buy_put"]
+    symbol: str
+    quantity: int = Field(ge=1)
+    limit_price: float = Field(gt=0)
+
+
+class OptionOrderValidation(OptionOrderProposal):
+    valid: bool
+    checks: list[OptionValidationCheck]
+    rejection_reasons: list[str]
+    evidence: OptionEvidence | None = None
+    options_buying_power: float
+    daily_loss_headroom: float
 
 
 class AgentDecision(AgentDecisionDraft):

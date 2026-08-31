@@ -24,7 +24,7 @@ context from durable state and fresh Alpaca reconciliation reads. It contains:
 
 - market clock, session window, and evaluation timestamp
 - session-starting equity, current equity, buying power, realized and unrealized
-  P&L, daily loss headroom, and profit-stop state
+  P&L, and 10% daily loss headroom
 - current positions, working orders, most recent close, and cooldown state
 - the prior-session profile, compact daily narrative, and active reference levels
 - current SPY price, session range, initial balance, recent completed bars, and
@@ -61,9 +61,35 @@ still fails, the agent receives the calculated profile without generated prose.
 
 The model receives the preloaded context, AMT mandate, trading policy, and tools.
 It can record a hold without a tool call. After forming a directional thesis, it
-may inspect a narrow option chain through Alpaca MCP, calculate quantity, and call
-the relevant order tool directly. It uses targeted reads only when preloaded
-state is stale or insufficient.
+may inspect a narrow option chain through Alpaca MCP, select a qualifying
+contract, and pass the proposed order to the model-visible
+`validate_option_order` tool. It uses targeted reads only when preloaded state is
+stale or insufficient.
+
+`validate_option_order` is a read-only local tool rather than a contract selector.
+It accepts the intended action, option symbol, quantity, and limit price; fetches
+fresh metadata and a snapshot for that exact contract; and returns each policy
+check, the normalized quote and contract evidence, total debit, loss at the 35%
+premium backstop, buying-power state, daily-loss state, and precise rejection
+reasons. It does not rank contracts, choose strikes, infer direction, or modify
+the proposal.
+
+A successful result authorizes only the exact action, symbol, quantity, and limit
+price validated during that model turn. The Alpaca order tool rejects a proposal
+that has not passed validation, has changed since validation, or belongs to an
+earlier turn. The authorization is consumed by the first matching submission, so
+it cannot place a duplicate entry. A rejection is returned to the model so it may
+inspect another candidate. This is an execution contract around the model-visible
+tools, not a second strategy or approval service.
+
+The normal entry sequence is:
+
+1. form a SPY thesis from the preloaded auction context
+2. inspect a narrowed option chain through Alpaca MCP
+3. choose a contract and call `validate_option_order`
+4. revise the candidate when validation returns a rejection
+5. submit the exact validated order through Alpaca MCP
+6. verify the resulting order by its deterministic client order ID
 
 Alpaca-reported orders and positions remain execution truth. The runtime records
 each structured decision and model-visible tool call automatically.

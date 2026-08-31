@@ -12,34 +12,40 @@ The model must use current evidence, show its policy check in the decision recor
 and call Alpaca MCP itself. Common account and market evidence arrives in the
 timestamped turn context; the model retrieves targeted state when that context is
 stale or insufficient. Missing, stale, or contradictory evidence means hold or
-reduce risk.
+cancel the entry.
 
-## MVP limits
+## Competition limits
 
-| Control | Initial value |
+| Control | Value |
 | --- | --- |
 | Account mode | Competition paper account only |
 | Underlying | SPY only |
 | Structures | Long call or long put |
-| Quantity | Whole contracts within the calculated maximum |
+| Quantity | 15 contracts per entry |
 | Concurrent positions | One |
 | Concurrent working entries | One |
 | Days to expiration | 1–5 calendar DTE |
 | Target absolute delta | 0.55–0.65 |
 | Minimum model confidence | 0.50 |
 | Minimum underlying reward:risk | 1R |
-| Maximum premium allocation | 5% of session-starting equity |
-| Maximum planned loss per trade | 2% of session-starting equity |
-| Daily equity-loss limit | 5% of session-starting equity |
-| Daily realized profit stop | 5% of session-starting equity |
+| Daily equity-loss limit | 10% of session-starting equity |
+| Daily realized profit stop | None |
+| Daily trade-count limit | None |
 | Premium-loss circuit breaker | 35% below average filled premium |
 | Entry delay | 10 minutes after the open |
 | Post-close cooldown | 10 minutes |
 | Forced flatten | 15 minutes before the close |
 
-The timing, cooldown, confidence, reward, profit-stop, and macro-event controls
-follow the current Augur agent. Futures tick limits do not transfer cleanly to
-long options, so allocation and loss limits use account-equity percentages.
+The one-position rule, fixed size, cooldown, confidence, reward, and macro-event
+controls follow the current Augur agent's operating shape. Augur repeatedly
+trades one ES contract rather than dividing its account into a finite number of
+allocations. This agent uses 15 option contracts as its reusable competition risk
+unit. Size does not fall after a loss or rise with confidence.
+
+The short competition deliberately accepts more variance than the longer-running
+Augur strategy. The daily equity-loss limit is therefore 10%, and profitable
+sessions remain uncapped. The 10-minute cooldown is unchanged: it gives the
+five-minute loop two newly completed bars before another entry can be considered.
 
 On a normal SPY session, entries begin at 09:40 ET and end before 15:45 ET.
 Shortened sessions use the open and close reported by Alpaca.
@@ -65,8 +71,7 @@ request. It records that:
 - confidence is at least 0.50
 - no protected red-impact macro window or kill switch is active
 - account equity is above the daily loss floor
-- realized session P&L is below the daily profit stop
-- the intended quantity is within allocation, loss, and buying-power budgets
+- the intended quantity is exactly 15 contracts and fits options buying power
 
 The macro calendar is loaded before the session. A non-cancelled red-impact event
 that applies to SPY, ES, or the broad US equity market blocks entries for its
@@ -81,46 +86,51 @@ filters contracts using the rules above, then prefers:
 2. narrower relative spread
 3. earlier expiration
 
-Missing Greeks make a contract unsuitable for the MVP. The model does not replace
-delta with a moneyness guess.
+Missing Greeks make a contract unsuitable for the initial strategy. The model
+does not replace delta with a moneyness guess.
+
+The model owns contract ranking and selection. Before submission, it passes the
+proposed action, symbol, fixed quantity, and limit price to the model-visible
+`validate_option_order` tool. The tool refreshes metadata and a snapshot for that
+exact symbol and returns:
+
+- active and tradable status, right, expiration, DTE, and delta
+- bid, ask, midpoint, spread, relative spread, and quote timestamp
+- limit-price range and SPY penny-increment validity
+- total debit and loss at the 35% premium circuit breaker
+- options buying power and remaining daily-loss headroom
+- a pass or failure for every applicable policy rule
+- precise reasons for any rejection
+
+The validator does not score the chain, recommend a contract, or change the
+proposal. If it rejects a candidate, the model may inspect another contract and
+try again within the same turn.
 
 ## Position sizing
 
-Five percent is the maximum premium allocation, not the intended loss. A local
-calculator returns the maximum whole-contract quantity:
+Every new entry requests 15 contracts. At the target 0.60 absolute delta, that is
+about 900 SPY share-deltas and roughly 1.8 times the directional exposure of one
+ES contract. The comparison is approximate because option delta changes with SPY,
+time, and volatility.
 
-```text
-contract_debit = entry_limit × 100
-allocation_budget = session_starting_equity × 0.05
-planned_loss_per_contract = contract_debit × 0.35
-planned_loss_budget = session_starting_equity × 0.02
-daily_loss_floor = session_starting_equity × 0.95
-remaining_daily_loss_budget = current_equity - daily_loss_floor
-
-maximum_quantity = floor(min(
-  allocation_budget / contract_debit,
-  planned_loss_budget / planned_loss_per_contract,
-  remaining_daily_loss_budget / planned_loss_per_contract,
-  options_buying_power / contract_debit
-))
-```
-
-The agent may choose any positive whole-contract quantity up to that maximum and
-records both planned loss and full-debit worst-case loss. At $100,000 of session-
-starting equity, maximum allocation is $5,000, planned-loss budget is $2,000, and
-the daily loss floor is $95,000. A fully allocated position reaching the 35%
-circuit breaker has a planned loss of $1,750.
+The selected contract's premium determines the debit and therefore the dollars
+at risk. Before submission, the agent records the total debit, the loss implied
+by the 35% premium circuit breaker, and the full-debit worst case. If 15 contracts
+do not fit current options buying power, it holds rather than silently reducing
+the competition risk unit.
 
 The daily loss floor includes realized and unrealized P&L. Reaching it means no
-new entries and an immediate exit attempt. The realized profit stop likewise ends
-new entries for the session. There is no daily trade-count cap or competition-
-wide drawdown stop.
+new entries and an immediate exit attempt. For a session starting at $100,000,
+the floor is $90,000. Closed-position capital can be reused for later entries;
+the 10% floor is not a ten-trade allocation. There is no daily profit stop, daily
+trade-count cap, or competition-wide drawdown stop.
 
 ## Entry orders
 
 - Use limit orders only.
 - Start at the current midpoint, rounded to a valid price increment.
-- Refresh the option quote and maximum quantity immediately before submission;
+- Refresh the option quote and confirm that 15 contracts fit buying power
+  immediately before submission;
   refresh account or position state when its context timestamp is stale or a
   lifecycle event makes it ambiguous.
 - Give every order a deterministic client order ID derived from the decision ID.
@@ -158,7 +168,10 @@ greater risk.
 The model can call Alpaca MCP tools to place, replace, cancel, and close orders.
 Before each account-changing call it checks the latest reconciled order,
 position, and quote state, using a targeted MCP read when any value is stale or
-ambiguous. It never:
+ambiguous. A new entry must exactly match a successful
+`validate_option_order` result from the same turn. Validation does not carry into
+later turns, and changing the action, symbol, quantity, or limit price requires a
+new validation call. It never:
 
 - uses a market order to enter
 - increases quantity during replacement

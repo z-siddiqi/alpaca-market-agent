@@ -90,7 +90,7 @@ async def evaluate_tick() -> DecisionRecord:
         existing = await decision_store.get(current_tick_id)
         if existing is not None:
             return existing
-        async with AlpacaMcpClient(settings) as tools:
+        async with AlpacaMcpClient(settings, context) as tools:
             record = await evaluator.evaluate(current_tick_id, context, tools)
         return await decision_store.put(record)
     except HTTPError as error:

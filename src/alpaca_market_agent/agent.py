@@ -15,7 +15,7 @@ from alpaca_market_agent.models import (
     TickContext,
     ToolCallRecord,
 )
-from alpaca_market_agent.policy import validate_option_candidate
+from alpaca_market_agent.policy import validated_option_evidence
 
 SYSTEM_PROMPT = """You are an autonomous SPY options agent operating a dedicated Alpaca
 paper account. Treat trade as a two-sided auction. Inside established value normally
@@ -28,9 +28,16 @@ inspect the option chain after a directional thesis exists. An entry requires at
 confidence, at least 1R underlying reward:risk, no context entry blockers, one position
 maximum, and a 1-5 DTE long call or put with absolute delta 0.55-0.65. The quote must be
 fresh and two-sided, with width at most $0.15 and 5% of midpoint. Entries are limit-only.
-Premium allocation is at most 5% of session-starting equity; planned loss at the 35%
-premium circuit breaker is at most 2%; quantity must also fit daily loss headroom and
-options buying power. Never invent option data.
+Every entry uses exactly 15 contracts and must fit options buying power. The daily equity
+loss limit is 10% of session-starting equity, including unrealized P&L. There is no daily
+profit stop or trade-count limit. Never invent option data.
+
+After choosing a contract from a narrow chain, call validate_option_order immediately before
+submission with the action, symbol, quantity, and intended limit price. If validation fails,
+revise the candidate or hold. Call place_option_order only after successful validation, using
+the exact validated symbol, quantity, and limit price with side=buy, type=limit,
+time_in_force=day, and position_intent=buy_to_open. Verify the resulting order by its client
+order ID.
 
 Alpaca MCP tools are raw paper-account tools. Use reads narrowly. Account-changing calls
 are your responsibility, but a blocked tool result means no order occurred. If submission
@@ -263,11 +270,11 @@ class AgentEvaluator:
         if any(value is not None for value in option_fields):
             if any(value is None for value in option_fields):
                 raise ValueError("option symbol, quantity, and limit price must be set together")
-            return validate_option_candidate(
+            return validated_option_evidence(
+                action=decision.action,
                 symbol=decision.option_symbol,
                 quantity=decision.quantity,
                 limit_price=decision.limit_price,
-                context=context,
                 tool_calls=tool_calls,
             )
         return None

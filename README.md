@@ -26,7 +26,7 @@ is controlled by a deployment kill switch.
 
 - SPY and its listed options
 - long calls and puts with 1–5 days to expiration
-- policy-sized contract quantity and one open position at a time
+- fixed 15-contract entries and one open position at a time
 - five-minute or event-triggered agent evaluations
 - a preloaded turn context with account state, P&L, daily plan, and live auction state
 - targeted option-chain inspection through Alpaca MCP

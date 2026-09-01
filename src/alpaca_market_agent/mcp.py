@@ -11,10 +11,12 @@ from pydantic import ValidationError
 
 from alpaca_market_agent.config import Settings
 from alpaca_market_agent.models import (
+    AgentDecision,
     OptionOrderProposal,
     OptionOrderValidation,
     OptionValidationCheck,
     TickContext,
+    ToolCallRecord,
 )
 from alpaca_market_agent.policy import validate_option_order
 
@@ -56,7 +58,6 @@ READ_TOOLS = {
 WRITE_TOOLS = {
     "cancel_order_by_id",
     "close_position",
-    "place_option_order",
     "replace_order_by_id",
 }
 ALLOWED_TOOLS = READ_TOOLS | WRITE_TOOLS
@@ -122,16 +123,37 @@ class AlpacaMcpClient:
                 "error": "order submission is disabled",
                 "submissionEnabled": False,
             }, True
-        if name == "place_option_order":
-            error = self._entry_authorization_error(arguments)
-            if error is not None:
-                return {
-                    "error": error,
-                    "validationRequired": True,
-                    "orderPlaced": False,
-                }, True
-            self._validated_entry = None
         return await self._call_raw(name, arguments), False
+
+    async def submit_validated_entry(self, decision: AgentDecision) -> ToolCallRecord:
+        if (
+            decision.option_symbol is None
+            or decision.quantity is None
+            or decision.limit_price is None
+        ):
+            raise ValueError("entry decision is missing option order fields")
+        arguments: dict[str, Any] = {
+            "symbol": decision.option_symbol,
+            "side": "buy",
+            "qty": str(decision.quantity),
+            "type": "limit",
+            "time_in_force": "day",
+            "limit_price": str(decision.limit_price),
+            "position_intent": "buy_to_open",
+            "client_order_id": f"augur-entry-{decision.decision_id}",
+        }
+        error = self._entry_authorization_error(arguments)
+        if error is not None:
+            raise ValueError(error)
+        result = await self._call_raw("place_option_order", arguments)
+        self._validated_entry = None
+        return ToolCallRecord(
+            name="place_option_order",
+            arguments=arguments,
+            result=result,
+            blocked=False,
+            called_at=datetime.now(UTC),
+        )
 
     async def _call_raw(self, name: str, arguments: dict[str, Any]) -> Any:
         if self._session is None:

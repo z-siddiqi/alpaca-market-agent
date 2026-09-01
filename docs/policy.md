@@ -32,6 +32,8 @@ cancel the entry.
 | Daily realized profit stop | None |
 | Daily trade-count limit | None |
 | Premium-loss circuit breaker | 35% below average filled premium |
+| Premium break-even trigger | 20% above average filled premium |
+| Premium profit target | 50% above average filled premium |
 | Entry delay | 10 minutes after the open |
 | Post-close cooldown | 10 minutes |
 | Forced flatten | 15 minutes before the close |
@@ -147,14 +149,19 @@ to top up after canceling it.
 
 ## Position management and exits
 
-The SPY thesis remains primary. The agent exits when the underlying invalidates
-the thesis, reaches the target, or develops newer contradictory structure.
+The stored SPY thesis remains the reason for the trade. The option position has
+its own money-management exits: a 35% maximum premium loss and a 50% premium
+profit target. The agent may also exit earlier when SPY invalidates the thesis,
+reaches its structural objective, or develops newer contradictory structure.
 
-The premium circuit breaker is a secondary backstop. After the entry lifecycle
-settles, the runtime submits a broker-native sell stop for the filled quantity at
-65% of average filled premium. Alpaca owns the trigger and converts the elected
-stop to a market exit, so gaps and fill quality can produce a larger loss. Each
-tick still checks the reconciled position price as a fallback.
+After the entry lifecycle settles, the reasoning service submits a broker-native
+sell stop for the filled quantity at 65% of average filled premium. A separate
+position watcher polls the executable option bid throughout the session. Once
+that bid reaches a 20% gain, it replaces the stop at average filled premium and
+never loosens it. Once the bid reaches 50%, it latches the exit, cancels the stop,
+and works a sell limit at the current bid until flat. Alpaca owns the stop trigger,
+so gaps and fill quality can still produce a worse fill. The five-minute tick
+retains the premium-loss threshold as a slower fallback.
 
 Normal exits begin with a limit at midpoint. After five seconds, the agent may
 replace it with a marketable limit at the refreshed bid and continues checking
@@ -167,15 +174,19 @@ greater risk.
 
 ## Direct tool responsibility
 
-The model can call Alpaca MCP tools to place, replace, cancel, and close orders
-for thesis-driven actions. Broker protection, the daily-loss exit, and the
-session-close exit are runtime responsibilities and execute before a model call.
+The model uses Alpaca MCP to inspect the chain, select a contract, validate the
+exact order, and manage thesis-driven closes and cancellations. A successful
+entry decision is written to `trade_plans` before the runtime submits its exact
+validated order through Alpaca MCP. Broker protection, premium profit-taking,
+the daily-loss exit, and the session-close exit are runtime responsibilities and
+execute before a model call.
 Before each account-changing call it checks the latest reconciled order,
 position, and quote state, using a targeted MCP read when any value is stale or
 ambiguous. A new entry must exactly match a successful
-`validate_option_order` result from the same turn. Validation does not carry into
-later turns, and changing the action, symbol, quantity, or limit price requires a
-new validation call. It never:
+`validate_option_order` result from the same turn. Its SPY thesis, entry,
+invalidation, target, contract, and option exit parameters are durable before
+submission. Validation does not carry into later turns, and changing the action,
+symbol, quantity, or limit price requires a new validation call. It never:
 
 - uses a market order to enter
 - increases quantity during replacement

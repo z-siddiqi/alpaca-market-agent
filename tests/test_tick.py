@@ -112,3 +112,5 @@ def test_exit_controls_use_account_and_alpaca_state() -> None:
     )
     assert protective_stop_price(position) == 2.6
     assert is_protective_stop(protective_stop)
+
+    assert protective_stop_price(position, existing_stop_price=3) == 3

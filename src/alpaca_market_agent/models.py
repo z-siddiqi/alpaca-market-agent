@@ -256,6 +256,23 @@ class EntryWindow(CamelModel):
     session_closes_at: datetime
 
 
+class TradePlan(CamelModel):
+    decision_id: str
+    trading_date: date
+    created_at: datetime
+    action: Literal["buy_call", "buy_put"]
+    thesis: str
+    entry_price: float
+    invalidation_price: float
+    target_price: float
+    option_symbol: str
+    quantity: int
+    intended_limit_price: float
+    premium_loss_fraction: float
+    profit_target_fraction: float
+    breakeven_trigger_fraction: float
+
+
 class TickContext(CamelModel):
     evaluated_at: datetime
     trading_date: date
@@ -270,6 +287,7 @@ class TickContext(CamelModel):
     account: AccountState
     positions: list[PositionState]
     working_orders: list[OrderState]
+    trade_plan: TradePlan | None = None
     narrative: NarrativeRecord | None
     market: LiveMarketState
 

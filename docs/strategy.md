@@ -220,16 +220,19 @@ the chain through Alpaca MCP using the trading policy before choosing a contract
 
 ## Position management
 
-The recorded SPY thesis remains authoritative after entry. The primary exit is
-triggered when:
+The recorded SPY thesis remains authoritative after entry and is preloaded with
+the active option position. The position may exit when:
 
 - a completed five-minute bar crosses the structural invalidation
-- price reaches the recorded target and the agent elects to realize the thesis
+- price reaches the recorded structural target
 - new acceptance or rejection evidence materially contradicts the thesis
+- the option premium reaches its 50% profit target
 - the trading policy or session-close backstop requires liquidation
 
-Option premium movement does not redefine the market thesis. A premium-loss
-circuit breaker and session-close backstop remain independent safety controls.
+Option premium movement does not redefine the market thesis, but it does manage
+the instrument actually held. The broker stop begins 35% below filled premium,
+moves to break-even after a 20% premium gain, and never loosens. The plan is
+stored before order submission so these levels survive a failed model response.
 
 ## Decision contract
 

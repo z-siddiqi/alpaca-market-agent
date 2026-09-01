@@ -2,8 +2,9 @@ from datetime import date
 
 from google.api_core.exceptions import Conflict
 from google.cloud.firestore_v1 import AsyncClient
+from google.cloud.firestore_v1.base_query import FieldFilter
 
-from alpaca_market_agent.models import DecisionRecord, NarrativeRecord
+from alpaca_market_agent.models import DecisionRecord, NarrativeRecord, TradePlan
 
 
 class NarrativeStore:
@@ -70,6 +71,45 @@ class DecisionStore:
 
     def _document(self, tick_id: str):
         return self._firestore.collection("decisions").document(tick_id)
+
+    @property
+    def _firestore(self) -> AsyncClient:
+        if self._client is None:
+            self._client = AsyncClient(project=self.project)
+        return self._client
+
+
+class TradePlanStore:
+    def __init__(self, project: str | None = None, client: AsyncClient | None = None) -> None:
+        self.project = project or None
+        self._client = client
+
+    async def get_for_symbols(self, symbols: list[str]) -> TradePlan | None:
+        if not symbols:
+            return None
+        plans: list[TradePlan] = []
+        for symbol in set(symbols):
+            query = self._firestore.collection("trade_plans").where(
+                filter=FieldFilter("optionSymbol", "==", symbol)
+            )
+            async for snapshot in query.stream():
+                plans.append(TradePlan.model_validate(snapshot.to_dict()))
+        return max(plans, key=lambda plan: plan.created_at, default=None)
+
+    async def put(self, plan: TradePlan) -> TradePlan:
+        document = self._firestore.collection("trade_plans").document(plan.decision_id)
+        try:
+            await document.create(plan.model_dump(mode="json", by_alias=True))
+        except Conflict:
+            snapshot = await document.get()
+            if not snapshot.exists:
+                raise
+            return TradePlan.model_validate(snapshot.to_dict())
+        return plan
+
+    def close(self) -> None:
+        if self._client is not None:
+            self._client.close()
 
     @property
     def _firestore(self) -> AsyncClient:

@@ -4,6 +4,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import httpx
+import pytest
 
 from alpaca_market_agent.agent import AgentEvaluator
 from alpaca_market_agent.alpaca import AlpacaClient
@@ -11,6 +12,7 @@ from alpaca_market_agent.config import Settings
 from alpaca_market_agent.mcp import AlpacaMcpClient
 from alpaca_market_agent.models import (
     AccountState,
+    AgentDecision,
     EntryWindow,
     LiveMarketState,
     MarketClockState,
@@ -129,7 +131,7 @@ def make_context() -> TickContext:
     )
 
 
-def test_option_order_requires_matching_validation() -> None:
+def test_runtime_submits_only_the_validated_option_order() -> None:
     client = AlpacaMcpClient(Settings(order_submission_enabled=True), make_context())
     client._session = FakeMcpSession()  # type: ignore[assignment]
     order = {
@@ -158,17 +160,33 @@ def test_option_order_requires_matching_validation() -> None:
     )
     assert validation["valid"] is True
 
-    _result, changed_blocked = asyncio.run(
-        client.call("place_option_order", {**order, "limit_price": "2.53"})
+    decision = AgentDecision(
+        decision_id="2026-08-28-1000",
+        evaluated_at=make_context().evaluated_at,
+        action="buy_put",
+        auction_state="discovery_down",
+        confidence=0.8,
+        thesis="SPY is accepting below prior value.",
+        entry_price=100,
+        invalidation_price=101,
+        target_price=99,
+        option_symbol=order["symbol"],
+        quantity=15,
+        limit_price=2.53,
     )
-    assert changed_blocked
+    with pytest.raises(ValueError, match="limit price"):
+        asyncio.run(client.submit_validated_entry(decision))
 
-    result, exact_blocked = asyncio.run(client.call("place_option_order", order))
-    assert not exact_blocked
-    assert result["structuredContent"]["id"] == "order-1"
+    action = asyncio.run(
+        client.submit_validated_entry(decision.model_copy(update={"limit_price": 2.52}))
+    )
+    assert action.result["structuredContent"]["id"] == "order-1"
+    assert action.arguments["client_order_id"] == "augur-entry-2026-08-28-1000"
 
-    _result, repeated_blocked = asyncio.run(client.call("place_option_order", order))
-    assert repeated_blocked
+    with pytest.raises(ValueError, match="validate_option_order"):
+        asyncio.run(
+            client.submit_validated_entry(decision.model_copy(update={"limit_price": 2.52}))
+        )
 
 
 def test_native_option_stop_payload() -> None:

@@ -7,12 +7,15 @@ Status: Draft
 ```mermaid
 flowchart LR
     scheduler["Cloud Scheduler"] --> runtime["Private Cloud Run service"]
+    scheduler --> watcher["Position watcher job"]
     runtime --> context["Preloaded turn context"]
     state[("Durable state and audit")] --> context
     context --> agent["DeepSeek V4 Flash agent"]
     agent <--> mcp["Alpaca MCP<br/>option data and orders"]
     mcp <--> account["Competition paper account"]
     runtime <--> account
+    watcher <--> account
+    watcher --> state
     runtime --> state
     backstop["Kill switch and forced close"] --> mcp
 ```
@@ -75,12 +78,12 @@ reasons. It does not rank contracts, choose strikes, infer direction, or modify
 the proposal.
 
 A successful result authorizes only the exact action, symbol, quantity, and limit
-price validated during that model turn. The Alpaca order tool rejects a proposal
-that has not passed validation, has changed since validation, or belongs to an
-earlier turn. The authorization is consumed by the first matching submission, so
-it cannot place a duplicate entry. A rejection is returned to the model so it may
-inspect another candidate. This is an execution contract around the model-visible
-tools, not a second strategy or approval service.
+price validated during that model turn. The model then returns its structured
+decision. Before submission, the runtime writes a durable trade plan containing
+the SPY thesis, entry, invalidation and target plus the selected option and its
+premium exit parameters. Only then does it submit the exact validated order
+through Alpaca MCP. A rejection is returned to the model so it may inspect
+another candidate.
 
 The normal entry sequence is:
 
@@ -88,12 +91,19 @@ The normal entry sequence is:
 2. inspect a narrowed option chain through Alpaca MCP
 3. choose a contract and call `validate_option_order`
 4. revise the candidate when validation returns a rejection
-5. submit the exact validated order through Alpaca MCP
-6. verify the resulting order by its deterministic client order ID
-7. reconcile the fill and submit a broker-native 35% premium-loss stop
+5. return the complete structured entry decision
+6. persist its durable trade plan
+7. submit the exact validated order through Alpaca MCP
+8. reconcile the fill and submit a broker-native 35% premium-loss stop
 
-Alpaca-reported orders and positions remain execution truth. The runtime records
-each structured decision and model-visible tool call automatically.
+The separately deployed position watcher then owns the active option between
+reasoning ticks. It polls executable option bids, moves the stop to break-even
+after +20%, and latches a profit exit after +50%. It reads the durable trade plan
+but does not run a model, MCP server, narrative generation, or contract selection.
+
+Alpaca-reported orders and positions remain execution truth. Later ticks preload
+the trade plan for the active option, so a model restart or malformed response
+cannot erase the original thesis or exits.
 
 ## Minimal operational controls
 
@@ -118,10 +128,11 @@ before retrying a lost submission. Partial fills become the authoritative
 position immediately, and a position is not flat until Alpaca says it is. A
 durable lease prevents concurrent turns from managing the account.
 
-When positioned, the runtime reconciles the protective sell stop before invoking
-the model. Mandatory premium-loss, daily-loss, and session-close exits cancel
-that stop and close the position without model discretion. A thesis-driven model
-exit must likewise cancel the protective stop before requesting liquidation.
+When positioned, the reasoning runtime makes sure the initial protective sell
+stop exists before invoking the model. The watcher continuously reconciles that
+stop, break-even, profit, daily-loss, and session-close rules. The scheduled tick
+retains premium-loss, daily-loss, and close checks as slower failure backstops. A
+thesis-driven model exit must cancel the protective stop before liquidation.
 
 ## Token economy
 
@@ -144,8 +155,9 @@ be set from observed runs rather than estimated in advance.
 
 ## Deployment and scheduling
 
-The MVP is one containerized FastAPI application deployed as a private Cloud Run
-service. It does not use Cloud Functions. Cloud Scheduler invokes its HTTP
+The system has two independently built containers: the private FastAPI reasoning
+service and a small Cloud Run Job for position watching. It does not use Cloud
+Functions. Cloud Scheduler invokes the HTTP
 endpoints with an OIDC token from a service account that has only the Cloud Run
 Invoker role. The service uses its own runtime identity for Firestore access.
 
@@ -158,6 +170,7 @@ delayed requests, and manual invocations do not depend on cron being market-awar
 | --- | --- | --- | --- |
 | Daily narrative | 09:35 ET weekdays | `POST /narratives/generate` | Provisioned |
 | Agent evaluation | Every five minutes during the RTH window | `POST /ticks/evaluate` | Enabled |
+| Position watcher | 09:35 ET weekdays | Cloud Run Job execution | Enabled |
 | Normal-session close backstop | 15:45 ET weekdays | `POST /positions/flatten` | Enabled |
 
 The tick endpoint will acquire a Firestore lease keyed by trading date and
@@ -173,11 +186,10 @@ Alpaca-reported close with the current time, so the forced-close path works on
 early-close days. The separate 15:45 request is an additional normal-session
 backstop.
 
-The first MVP does not keep Alpaca WebSockets alive between requests. Scheduled
-turns reconcile through Alpaca instead. If immediate order events later prove
-necessary, the stream consumer can become a separate Cloud Run Job that starts
-once each trading day and exits after the session, without changing the
-request-driven tick and narrative interfaces.
+The reasoning service does not keep Alpaca WebSockets alive between requests.
+The watcher starts once each trading day, polls the active option quote and
+reconciles broker state until the session ends. Its isolated `watcher/` build
+context contains only HTTP and Firestore runtime dependencies.
 
 The Python service exposes an HTTP generation endpoint and listens on the
 platform-provided `PORT`, making it suitable for Cloud Run. Firestore stores one

@@ -32,17 +32,16 @@ Every entry uses exactly 15 contracts and must fit options buying power. The dai
 loss limit is 10% of session-starting equity, including unrealized P&L. There is no daily
 profit stop or trade-count limit. Never invent option data.
 
-After choosing a contract from a narrow chain, call validate_option_order immediately before
-submission with the action, symbol, quantity, and intended limit price. If validation fails,
-revise the candidate or hold. Call place_option_order only after successful validation, using
-the exact validated symbol, quantity, and limit price with side=buy, type=limit,
-time_in_force=day, and position_intent=buy_to_open. Verify the resulting order by its client
-order ID.
+After choosing a contract from a narrow chain, call validate_option_order with the action,
+symbol, quantity, and intended limit price. If validation fails, revise the candidate or hold.
+After successful validation, return the matching buy decision. The runtime durably records the
+complete decision and then submits that exact validated entry. Do not look for or call an entry
+submission tool.
 
-Alpaca MCP tools are raw paper-account tools. Use reads narrowly. Account-changing calls
-are your responsibility, but a blocked tool result means no order occurred. If submission
-is disabled, you may inspect a candidate but the final action must be hold and include
-order_submission_disabled in holdReasons.
+Alpaca MCP tools are raw paper-account tools. Use reads narrowly. Thesis-driven close and
+cancel calls are your responsibility, but a blocked tool result means no action occurred. If
+submission is disabled, you may inspect a candidate but the final action must be hold and
+include order_submission_disabled in holdReasons.
 
 The supplied entryWindow.state and entryBlockers are authoritative policy facts. Do not
 recalculate the session window from timestamp strings or invent a blocker that is absent.
@@ -58,9 +57,12 @@ exits. When entryWindow.state is closing_only, do not open a position: cancel an
 buy order and close any open position through Alpaca MCP. Do not leave a position or
 working order for the next session.
 
-A working sell stop is the runtime-owned 35% premium circuit breaker, not an exit already
-in progress. Leave it working while holding. Before a thesis-based close, cancel that stop,
-then call close_position. Mandatory risk exits execute before the model is called.
+A working sell stop is runtime-owned option protection, not an exit already in progress. It
+starts at the 35% premium circuit breaker and moves to break-even after a 20% option gain.
+Leave it working while holding. A 50% option gain is a mandatory profit exit. Before a
+thesis-based close, cancel the stop, then call close_position. Mandatory risk exits execute
+before the model is called. When a position has a tradePlan, its original SPY thesis, entry,
+invalidation, and target remain authoritative.
 
 Return only a JSON object matching the supplied decision schema. Record concise evidence,
 policy checks, and hold reasons. Prices for entry, invalidation, and target are SPY prices;
@@ -286,6 +288,21 @@ class AgentEvaluator:
             missing = [name for name, value in required.items() if value is None]
             if missing:
                 raise ValueError(f"entry decision is missing: {', '.join(missing)}")
+            entry_price = float(decision.entry_price)
+            invalidation_price = float(decision.invalidation_price)
+            target_price = float(decision.target_price)
+            if decision.action == "buy_call":
+                risk = entry_price - invalidation_price
+                reward = target_price - entry_price
+            else:
+                risk = invalidation_price - entry_price
+                reward = entry_price - target_price
+            if risk <= 0 or reward <= 0:
+                raise ValueError(
+                    "entry, invalidation, and target do not describe the selected direction"
+                )
+            if reward < risk:
+                raise ValueError("SPY target must provide at least 1R reward:risk")
         if context.exit_reasons and decision.action != "close_position":
             raise ValueError("authoritative exit reasons require close_position")
         if decision.action == "close_position":

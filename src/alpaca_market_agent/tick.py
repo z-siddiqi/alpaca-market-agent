@@ -15,9 +15,13 @@ from alpaca_market_agent.models import (
     OrderState,
     PositionState,
     TickContext,
+    TradePlan,
 )
-from alpaca_market_agent.policy import DAILY_LOSS_FRACTION, PREMIUM_BREAKER_FRACTION
-from alpaca_market_agent.storage import NarrativeStore
+from alpaca_market_agent.policy import (
+    DAILY_LOSS_FRACTION,
+    PREMIUM_BREAKER_FRACTION,
+)
+from alpaca_market_agent.storage import NarrativeStore, TradePlanStore
 
 ET = ZoneInfo("America/New_York")
 POST_CLOSE_COOLDOWN = timedelta(minutes=10)
@@ -128,6 +132,7 @@ def build_exit_reasons(
     window: EntryWindow,
     account: AccountState,
     positions: list[PositionState],
+    trade_plan: TradePlan | None = None,
 ) -> list[str]:
     if not positions:
         return []
@@ -139,7 +144,16 @@ def build_exit_reasons(
         reasons.append("session_close")
     if clock.is_open:
         for position in positions:
-            breaker_price = position.average_entry_price * (1 - PREMIUM_BREAKER_FRACTION)
+            matching_plan = (
+                trade_plan if trade_plan is not None and trade_plan.option_symbol == position.symbol
+                else None
+            )
+            loss_fraction = (
+                matching_plan.premium_loss_fraction
+                if matching_plan is not None
+                else PREMIUM_BREAKER_FRACTION
+            )
+            breaker_price = position.average_entry_price * (1 - loss_fraction)
             if (
                 position.asset_class == "us_option"
                 and position.average_entry_price > 0
@@ -301,9 +315,15 @@ def build_live_market_state(
 
 
 class TickContextBuilder:
-    def __init__(self, alpaca: AlpacaClient, store: NarrativeStore) -> None:
+    def __init__(
+        self,
+        alpaca: AlpacaClient,
+        store: NarrativeStore,
+        trade_plan_store: TradePlanStore,
+    ) -> None:
         self.alpaca = alpaca
         self.store = store
+        self.trade_plan_store = trade_plan_store
 
     async def build(self) -> TickContext:
         clock = parse_clock(await self.alpaca.trading_clock())
@@ -349,6 +369,10 @@ class TickContextBuilder:
         account = build_account_state(account_payload)
         positions = build_positions(position_payloads)
         orders = build_orders(order_payloads)
+        trade_plan = await self.trade_plan_store.get_for_symbols(
+            [position.symbol for position in positions]
+            + [order.symbol for order in orders if order.side == "buy"]
+        )
         market = build_live_market_state(as_of=evaluated_at, bars=bars, snapshot=snapshot)
         window = build_entry_window(clock)
         last_position_closed_at = most_recent_position_close(closed_order_payloads)
@@ -362,6 +386,7 @@ class TickContextBuilder:
             window=window,
             account=account,
             positions=positions,
+            trade_plan=trade_plan,
         )
         cancel_order_ids = mandatory_order_cancellations(
             evaluated_at=evaluated_at,
@@ -405,6 +430,7 @@ class TickContextBuilder:
             account=account,
             positions=positions,
             working_orders=orders,
+            trade_plan=trade_plan,
             narrative=narrative,
             market=market,
         )

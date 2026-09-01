@@ -9,11 +9,21 @@ from alpaca_market_agent.agent import AgentEvaluator
 from alpaca_market_agent.alpaca import AlpacaClient
 from alpaca_market_agent.config import Settings
 from alpaca_market_agent.mcp import AlpacaMcpClient
-from alpaca_market_agent.models import DecisionRecord, GenerateNarrativeRequest, NarrativeRecord
+from alpaca_market_agent.models import (
+    DecisionRecord,
+    GenerateNarrativeRequest,
+    NarrativeRecord,
+    TradePlan,
+)
 from alpaca_market_agent.narrative import NarrativeGenerator, narrative_date
+from alpaca_market_agent.policy import (
+    PREMIUM_BREAKER_FRACTION,
+    PREMIUM_BREAKEVEN_TRIGGER_FRACTION,
+    PREMIUM_PROFIT_TARGET_FRACTION,
+)
 from alpaca_market_agent.profile import build_opening_context, build_session_perception
 from alpaca_market_agent.risk import PositionRiskManager, forced_exit_record
-from alpaca_market_agent.storage import DecisionStore, NarrativeStore
+from alpaca_market_agent.storage import DecisionStore, NarrativeStore, TradePlanStore
 from alpaca_market_agent.tick import TickContextBuilder, build_entry_window, parse_clock, tick_id
 
 settings = Settings()
@@ -22,7 +32,8 @@ generator = NarrativeGenerator(settings)
 evaluator = AgentEvaluator(settings)
 store = NarrativeStore(settings.gcp_project_id)
 decision_store = DecisionStore(settings.gcp_project_id)
-tick_context_builder = TickContextBuilder(alpaca, store)
+trade_plan_store = TradePlanStore(settings.gcp_project_id)
+tick_context_builder = TickContextBuilder(alpaca, store, trade_plan_store)
 risk_manager = PositionRiskManager(settings, alpaca)
 
 
@@ -34,6 +45,7 @@ async def lifespan(_app: FastAPI):
     await evaluator.close()
     store.close()
     decision_store.close()
+    trade_plan_store.close()
 
 
 app = FastAPI(title="Alpaca Market Agent", version="0.1.0", lifespan=lifespan)
@@ -104,6 +116,39 @@ async def evaluate_tick() -> DecisionRecord:
             )
         async with AlpacaMcpClient(settings, context) as tools:
             record = await evaluator.evaluate(current_tick_id, context, tools)
+            if record.decision.action in {"buy_call", "buy_put"}:
+                decision = record.decision
+                if (
+                    decision.entry_price is None
+                    or decision.invalidation_price is None
+                    or decision.target_price is None
+                    or decision.option_symbol is None
+                    or decision.quantity is None
+                    or decision.limit_price is None
+                ):
+                    raise ValueError("validated entry is missing its durable trade plan")
+                await trade_plan_store.put(
+                    TradePlan(
+                        decision_id=decision.decision_id,
+                        trading_date=record.trading_date,
+                        created_at=record.created_at,
+                        action=decision.action,
+                        thesis=decision.thesis,
+                        entry_price=decision.entry_price,
+                        invalidation_price=decision.invalidation_price,
+                        target_price=decision.target_price,
+                        option_symbol=decision.option_symbol,
+                        quantity=decision.quantity,
+                        intended_limit_price=decision.limit_price,
+                        premium_loss_fraction=PREMIUM_BREAKER_FRACTION,
+                        profit_target_fraction=PREMIUM_PROFIT_TARGET_FRACTION,
+                        breakeven_trigger_fraction=PREMIUM_BREAKEVEN_TRIGGER_FRACTION,
+                    )
+                )
+                entry_action = await tools.submit_validated_entry(decision)
+                record = record.model_copy(
+                    update={"tool_calls": [*record.tool_calls, entry_action]}
+                )
         post_model_risk_actions = []
         if record.decision.action in {"buy_call", "buy_put"} and record.decision.option_symbol:
             settled = await risk_manager.settle_entry(context, record.decision.option_symbol)

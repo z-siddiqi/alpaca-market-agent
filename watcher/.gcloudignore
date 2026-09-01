@@ -1,0 +1,8 @@
+.gcloudignore
+.venv
+__pycache__
+.pytest_cache
+.ruff_cache
+tests
+README.md
+*.py[cod]

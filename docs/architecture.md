@@ -49,15 +49,15 @@ and before entries become eligible at 09:40 ET. Its only market inputs are:
 - the opening location relative to prior range and value
 - the first completed five-minute SPY bar from IEX
 
-The generator calculates the prior-session profile and renders the same compact
-AMT perception used by Augur. Kimi K3 returns the familiar `Contextual Analysis &
-Plan` and `Levels of Interest` Markdown plus one structured `balanced`,
-`above_structure`, or `below_structure` level map. Every selected price must
-match a calculated reference. The completed narrative and structured levels are
-cached and preloaded on each trading turn.
+The generator calculates the prior-session profile, then DeepSeek V4 Pro chooses a
+`balanced`, `above_structure`, or `below_structure` map through a validation tool.
+Invalid shapes, ordering, or invented prices are returned to the model for correction.
+After its chosen map passes, the model writes the familiar `Contextual Analysis &
+Plan` and `Levels of Interest` Markdown. The completed narrative and structured
+levels are cached and preloaded on each trading turn.
 
 This slice does not load older sessions, retrieve similar narratives, or build a
-knowledge corpus. Generation may retry once after an invalid response; if it
+knowledge corpus. Level selection may be corrected twice after an invalid response; if it
 still fails, the agent receives the calculated profile without generated prose.
 
 ## Agent loop
@@ -168,7 +168,7 @@ delayed requests, and manual invocations do not depend on cron being market-awar
 
 | Purpose | Schedule | Endpoint | Status |
 | --- | --- | --- | --- |
-| Daily narrative | 09:35 ET weekdays | `POST /narratives/generate` | Provisioned |
+| Daily narrative | 09:36 ET weekdays | `POST /narratives/generate` | Provisioned |
 | Agent evaluation | Every five minutes during the RTH window | `POST /ticks/evaluate` | Enabled |
 | Position watcher | 09:35 ET weekdays | Cloud Run Job execution | Enabled |
 | Normal-session close backstop | 15:45 ET weekdays | `POST /positions/flatten` | Enabled |

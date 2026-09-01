@@ -180,6 +180,22 @@ class AlpacaClient:
         prior_bars = [
             bar for bar in prior_bars if source_open_at <= bar.timestamp < source_close_at
         ]
+        if len(prior_bars) < expected_bars:
+            fallback_bars = await self.stock_bars(
+                start=source_open_at,
+                end=source_close_at,
+                feed="iex",
+            )
+            bars_by_timestamp = {bar.timestamp: bar for bar in fallback_bars}
+            bars_by_timestamp.update({bar.timestamp: bar for bar in prior_bars})
+            prior_bars = sorted(
+                (
+                    bar
+                    for bar in bars_by_timestamp.values()
+                    if source_open_at <= bar.timestamp < source_close_at
+                ),
+                key=lambda bar: bar.timestamp,
+            )
 
         opening_start = datetime.combine(plan_date, time(9, 30), ET)
         opening_end = datetime.combine(plan_date, time(9, 35), ET)

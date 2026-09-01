@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import httpx
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from market_agent.config import Settings
 from market_agent.models import (
@@ -23,9 +23,9 @@ Write like a calm Market Profile practitioner: observational, specific, and cond
 Do not issue buy or sell commands. Use only facts and prices in the supplied
 prior-session perception and opening-gap context.
 
-Return JSON with exactly two keys: markdown and levels.
-
-markdown must contain these sections in order:
+Before writing any prose, call validate_levels with your chosen level map. If validation
+fails, read the error and call the tool again with a corrected map. Only after validation
+passes, write Markdown containing these sections in order:
 
 ## Contextual Analysis & Plan
 
@@ -36,18 +36,45 @@ level map in plain language.
 
 ## Levels of Interest
 
-A one-line introduction followed by two concise bullets describing the selected map.
+A one-line introduction followed by two concise bullets describing the validated map.
 
-levels must use one of the existing Augur map shapes:
+Choose one of these maps:
 - balanced: kind, pivot, upsideTargets, downsideTargets
 - above_structure: kind, upsideTrigger, upsideTargets, supportRepair
 - below_structure: kind, downsideTrigger, downsideTargets, resistanceRepair
 
-All Targets and Repair fields must be JSON arrays, even when they contain one price.
+Every level must be copied exactly from allowed_references. Do not calculate, round, or
+invent levels. Targets and repair ladders must be nearest first. For a true gap beyond
+prior structure, continuation targets may be empty; do not fabricate one."""
 
-Every level must exactly match a price in allowed_references. Do not calculate,
-round, or invent levels. Targets must be nearest first. For a true gap beyond prior
-structure, continuation targets may be empty; do not fabricate a target."""
+
+VALIDATE_LEVELS_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "validate_levels",
+        "description": "Validate the chosen regime-aware level map before writing the plan.",
+        "parameters": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "enum": ["balanced", "above_structure", "below_structure"],
+                },
+                "pivot": {"type": "number"},
+                "upsideTrigger": {"type": "number"},
+                "downsideTrigger": {"type": "number"},
+                "upsideTargets": {"type": "array", "items": {"type": "number"}},
+                "downsideTargets": {"type": "array", "items": {"type": "number"}},
+                "supportRepair": {"type": "array", "items": {"type": "number"}},
+                "resistanceRepair": {"type": "array", "items": {"type": "number"}},
+            },
+            "required": ["kind"],
+        },
+    },
+}
+
+LEVELS_ADAPTER = TypeAdapter(AboveStructureLevels | BalancedLevels | BelowStructureLevels)
 
 
 class NarrativeGenerator:
@@ -65,89 +92,144 @@ class NarrativeGenerator:
         perception: SessionPerception,
         opening: OpeningContext,
     ) -> NarrativeRecord:
-        prompt = self._build_prompt(perception, opening)
-        errors: list[str] = []
-        for _attempt in range(2):
-            content = await self._call_model(prompt, errors)
-            try:
-                draft = NarrativeDraft.model_validate(self._parse_json(content))
-                validate_levels(draft, perception.references())
-            except (ValidationError, ValueError, json.JSONDecodeError) as error:
-                errors.append(str(error))
-                continue
-            return NarrativeRecord(
-                **draft.model_dump(),
-                source_session=perception.source_session,
-                plan_session=opening.plan_session,
-                generated_at=datetime.now(UTC),
-                model=self.settings.narrative_model,
-                perception=perception,
-                opening_context=opening,
-            )
-        raise ValueError(f"narrative generation failed validation: {'; '.join(errors)}")
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": self._build_prompt(perception, opening)},
+        ]
+        levels: AboveStructureLevels | BalancedLevels | BelowStructureLevels | None = None
 
-    async def _call_model(self, prompt: str, errors: list[str]) -> str:
-        correction = ""
-        if errors:
-            correction = (
-                "\n\nYour previous response failed validation. Correct these errors and return "
-                "the full "
-                "JSON object again:\n- " + "\n- ".join(errors)
+        for _attempt in range(3):
+            message = await self._call_model(messages, tools=[VALIDATE_LEVELS_TOOL])
+            tool_calls = message.get("tool_calls") or []
+            if len(tool_calls) != 1:
+                messages.extend(
+                    [
+                        message,
+                        {
+                            "role": "user",
+                            "content": "Call validate_levels exactly once before writing prose.",
+                        },
+                    ]
+                )
+                continue
+
+            call = tool_calls[0]
+            function = call.get("function", {})
+            if function.get("name") != "validate_levels":
+                messages.extend(
+                    [
+                        message,
+                        {"role": "user", "content": "Call the validate_levels tool."},
+                    ]
+                )
+                continue
+
+            try:
+                arguments = self._parse_json(function.get("arguments"))
+                candidate = LEVELS_ADAPTER.validate_python(arguments)
+                validate_level_map(candidate, perception.references())
+                validation = {"valid": True, "errors": []}
+                levels = candidate
+            except (ValidationError, ValueError, json.JSONDecodeError) as error:
+                validation = {"valid": False, "errors": [str(error)]}
+
+            messages.extend(
+                [
+                    message,
+                    {
+                        "role": "tool",
+                        "tool_call_id": call["id"],
+                        "content": json.dumps(validation, separators=(",", ":")),
+                    },
+                ]
             )
+            if levels is not None:
+                break
+
+        if levels is None:
+            raise ValueError("narrative level validation failed after 3 attempts")
+
+        message = await self._call_model(messages)
+        draft = NarrativeDraft(markdown=message.get("content"), levels=levels)
+        return NarrativeRecord(
+            **draft.model_dump(),
+            source_session=perception.source_session,
+            plan_session=opening.plan_session,
+            generated_at=datetime.now(UTC),
+            model=self.settings.narrative_model,
+            perception=perception,
+            opening_context=opening,
+        )
+
+    async def _call_model(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        request: dict[str, Any] = {
+            "model": self.settings.narrative_model,
+            "messages": messages,
+            "temperature": 0,
+            "max_tokens": 1_200,
+            "chat_template_kwargs": {"thinking": False},
+        }
+        if tools is not None:
+            request.update({"tools": tools, "tool_choice": "auto"})
         response = await self.client.post(
             self.settings.model_url(),
             headers=self.settings.model_headers(),
-            json={
-                "model": self.settings.narrative_model,
-                "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt + correction},
-                ],
-                "temperature": 0.2,
-                "max_tokens": 1_200,
-                "chat_template_kwargs": {"thinking": False},
-            },
+            json=request,
         )
         response.raise_for_status()
         payload = response.json()
         try:
-            return payload["choices"][0]["message"]["content"]
+            message = payload["choices"][0]["message"]
         except (KeyError, IndexError, TypeError) as error:
-            raise ValueError("model provider returned no narrative content") from error
+            raise ValueError("model provider returned no narrative message") from error
+        if not isinstance(message, dict):
+            raise ValueError("model provider returned an invalid narrative message")
+        return message
 
     @staticmethod
-    def _build_prompt(perception: SessionPerception, opening: OpeningContext) -> str:
+    def _build_prompt(
+        perception: SessionPerception,
+        opening: OpeningContext,
+    ) -> str:
         payload = {
             "prior_session": perception.model_dump(mode="json"),
             "opening_gap": opening.model_dump(mode="json"),
             "allowed_references": perception.references(),
         }
         return (
-            "Write the compact daily narrative for the plan session from this JSON. "
-            "Treat the narrative as context, not as a trade signal.\n\n"
+            "Choose the active level map, validate it, then write the compact daily narrative "
+            "for the plan session. Treat it as context, not as a trade signal.\n\n"
             + json.dumps(payload, separators=(",", ":"))
         )
 
     @staticmethod
-    def _parse_json(content: str) -> dict[str, Any]:
+    def _parse_json(content: Any) -> dict[str, Any]:
+        if not isinstance(content, str):
+            raise ValueError("tool arguments must be JSON text")
         stripped = content.strip()
-        if stripped.startswith("```"):
-            stripped = stripped.split("\n", 1)[1].rsplit("```", 1)[0]
-            if stripped.lstrip().startswith("json"):
-                stripped = stripped.lstrip()[4:].lstrip()
         parsed = json.loads(stripped)
         if not isinstance(parsed, dict):
-            raise ValueError("narrative response must be a JSON object")
+            raise ValueError("tool arguments must be a JSON object")
         return parsed
 
 
 def validate_levels(draft: NarrativeDraft, references: dict[str, float]) -> None:
+    validate_level_map(draft.levels, references)
+
+
+def validate_level_map(
+    levels: AboveStructureLevels | BalancedLevels | BelowStructureLevels,
+    references: dict[str, float],
+) -> None:
     allowed = list(references.values())
 
     def known(value: float) -> bool:
         return any(abs(value - candidate) < 0.005 for candidate in allowed)
 
-    levels = draft.levels
     if isinstance(levels, BalancedLevels):
         values = [levels.pivot, *levels.upside_targets, *levels.downside_targets]
         if levels.upside_targets != sorted(levels.upside_targets):

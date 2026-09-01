@@ -4,7 +4,7 @@ from typing import Any
 import httpx
 
 from risk_watcher.config import Settings
-from risk_watcher.models import Account, Clock, Order, Position, Quote
+from risk_watcher.models import Account, Clock, Order, Position, Quote, Trade
 
 
 class AlpacaClient:
@@ -46,6 +46,17 @@ class AlpacaClient:
         if not payload:
             raise ValueError(f"Alpaca returned no quote for {symbol}")
         return Quote.from_payload(payload)
+
+    def latest_stock_trade(self, symbol: str) -> Trade:
+        response = self.client.get(
+            f"{self.settings.alpaca_data_url}/v2/stocks/trades/latest",
+            params={"symbols": symbol, "feed": "iex"},
+        )
+        response.raise_for_status()
+        payload = response.json().get("trades", {}).get(symbol)
+        if not payload:
+            raise ValueError(f"Alpaca returned no trade for {symbol}")
+        return Trade.from_payload(payload)
 
     def place_stop(
         self,
@@ -129,3 +140,7 @@ class AlpacaClient:
 
 def quote_is_fresh(quote: Quote, now: datetime, maximum_age_seconds: float = 5) -> bool:
     return quote.bid > 0 and 0 <= (now - quote.timestamp).total_seconds() <= maximum_age_seconds
+
+
+def trade_is_fresh(trade: Trade, now: datetime, maximum_age_seconds: float = 5) -> bool:
+    return trade.price > 0 and 0 <= (now - trade.timestamp).total_seconds() <= maximum_age_seconds

@@ -111,10 +111,25 @@ class Quote:
 
 
 @dataclass(frozen=True)
+class Trade:
+    price: float
+    timestamp: datetime
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, object]) -> "Trade":
+        return cls(
+            price=number(payload.get("p")),
+            timestamp=datetime.fromisoformat(str(payload["t"]).replace("Z", "+00:00")),
+        )
+
+
+@dataclass(frozen=True)
 class TradePlan:
     decision_id: str
+    action: str
     option_symbol: str
     created_at: datetime
+    target_price: float
     premium_loss_fraction: float
     breakeven_trigger_fraction: float
     profit_target_fraction: float
@@ -123,8 +138,10 @@ class TradePlan:
     def from_payload(cls, payload: dict[str, object]) -> "TradePlan":
         return cls(
             decision_id=str(payload["decisionId"]),
+            action=str(payload["action"]),
             option_symbol=str(payload["optionSymbol"]),
             created_at=datetime.fromisoformat(str(payload["createdAt"]).replace("Z", "+00:00")),
+            target_price=number(payload["targetPrice"]),
             premium_loss_fraction=number(payload["premiumLossFraction"]),
             breakeven_trigger_fraction=number(payload["breakevenTriggerFraction"]),
             profit_target_fraction=number(payload["profitTargetFraction"]),

@@ -97,9 +97,10 @@ The normal entry sequence is:
 8. reconcile the fill and submit a broker-native 35% premium-loss stop
 
 The separately deployed position watcher then owns the active option between
-reasoning ticks. It polls executable option bids, moves the stop to break-even
-after +20%, and latches a profit exit after +50%. It reads the durable trade plan
-but does not run a model, MCP server, narrative generation, or contract selection.
+reasoning ticks. It polls executable option bids and SPY, enforces the stored
+structural target, moves the stop to break-even after +20%, and latches a profit
+exit after +50%. It reads the durable trade plan but does not run a model, MCP
+server, narrative generation, or contract selection.
 
 Alpaca-reported orders and positions remain execution truth. Later ticks preload
 the trade plan for the active option, so a model restart or malformed response

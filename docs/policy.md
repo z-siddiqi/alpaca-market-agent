@@ -156,12 +156,13 @@ reaches its structural objective, or develops newer contradictory structure.
 
 After the entry lifecycle settles, the reasoning service submits a broker-native
 sell stop for the filled quantity at 65% of average filled premium. A separate
-position watcher polls the executable option bid throughout the session. Once
-that bid reaches a 20% gain, it replaces the stop at average filled premium and
-never loosens it. Once the bid reaches 50%, it latches the exit, cancels the stop,
-and works a sell limit at the current bid until flat. Alpaca owns the stop trigger,
-so gaps and fill quality can still produce a worse fill. The five-minute tick
-retains the premium-loss threshold as a slower fallback.
+position watcher polls the executable option bid and SPY throughout the session.
+It closes the option when SPY reaches the stored structural target.
+Once the option bid reaches a 20% gain, it replaces the stop at average filled
+premium and never loosens it. Once the bid reaches 50%, it latches the exit,
+cancels the stop, and works a sell limit at the current bid until flat. Alpaca owns
+the stop trigger, so gaps and fill quality can still produce a worse fill. The
+five-minute tick retains the premium-loss threshold as a slower fallback.
 
 Normal exits begin with a limit at midpoint. After five seconds, the agent may
 replace it with a marketable limit at the refreshed bid and continues checking

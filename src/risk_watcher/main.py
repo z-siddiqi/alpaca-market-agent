@@ -7,13 +7,14 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 
-from risk_watcher.alpaca import AlpacaClient, quote_is_fresh
+from risk_watcher.alpaca import AlpacaClient, quote_is_fresh, trade_is_fresh
 from risk_watcher.config import Settings
 from risk_watcher.models import Order, Position, TradePlan
 from risk_watcher.rules import (
     breakeven_trigger_price,
     loss_stop_price,
     profit_target_price,
+    spy_target_reached,
 )
 from risk_watcher.store import Store
 
@@ -30,7 +31,7 @@ class PositionWatcher:
         self.store = Store(settings.gcp_project_id, owner, settings.lease_seconds)
         self.running = True
         self.plans: dict[str, TradePlan] = {}
-        self.profit_exits: set[str] = set()
+        self.triggered_exits: dict[str, str] = {}
         self.last_account_refresh = 0.0
         self.last_clock_refresh = 0.0
         self.last_heartbeat = 0.0
@@ -107,9 +108,12 @@ class PositionWatcher:
             self.plans[position.symbol] = plan
 
         quote = self.alpaca.latest_quote(position.symbol)
+        spy_trade = self.alpaca.latest_stock_trade("SPY")
         now = datetime.now(UTC)
         if not quote_is_fresh(quote, now):
             raise ValueError(f"stale option quote for {position.symbol}")
+        if not trade_is_fresh(spy_trade, now):
+            raise ValueError("stale SPY trade")
 
         protective_stops = [order for order in orders if order.protective_stop]
         working_exits = [
@@ -119,10 +123,24 @@ class PositionWatcher:
             self._maintain_exit(working_exits[0], quote.bid)
             return
 
+        target_reached = spy_target_reached(spy_trade.price, plan)
+        if target_reached and position.symbol not in self.triggered_exits:
+            self.triggered_exits[position.symbol] = "spy_target"
+            LOG.info(
+                "triggered SPY target for %s at %.2f",
+                position.symbol,
+                spy_trade.price,
+            )
         if quote.bid >= profit_target_price(position, plan):
-            self.profit_exits.add(position.symbol)
-        if position.symbol in self.profit_exits:
-            self._start_profit_exit(position, protective_stops, quote.bid, plan)
+            self.triggered_exits.setdefault(position.symbol, "premium_target")
+        if position.symbol in self.triggered_exits:
+            self._start_exit(
+                position,
+                protective_stops,
+                quote.bid,
+                plan,
+                self.triggered_exits[position.symbol],
+            )
             return
 
         desired_stop = loss_stop_price(position, plan)
@@ -140,20 +158,21 @@ class PositionWatcher:
         self.alpaca.place_stop(position, desired_stop, client_order_id)
         LOG.info("placed %s stop at %.2f", position.symbol, desired_stop)
 
-    def _start_profit_exit(
+    def _start_exit(
         self,
         position: Position,
         protective_stops: list[Order],
         bid: float,
         plan: TradePlan,
+        reason: str,
     ) -> None:
         for order in protective_stops:
             self.alpaca.cancel_order(order.order_id)
         if protective_stops:
             return
-        client_order_id = self._client_order_id("profit", plan.decision_id)
+        client_order_id = self._client_order_id(reason, plan.decision_id)
         self.alpaca.place_profit_exit(position, bid, client_order_id)
-        LOG.info("submitted %s profit exit at %.2f", position.symbol, bid)
+        LOG.info("submitted %s %s exit at %.2f", position.symbol, reason, bid)
 
     def _maintain_exit(self, order: Order, bid: float) -> None:
         if bid <= 0 or order.limit_price == bid:

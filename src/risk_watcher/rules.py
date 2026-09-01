@@ -19,3 +19,11 @@ def breakeven_trigger_price(position: Position, plan: TradePlan) -> float:
 
 def profit_target_price(position: Position, plan: TradePlan) -> float:
     return cents(position.average_entry_price * (1 + plan.profit_target_fraction))
+
+
+def spy_target_reached(spy_price: float, plan: TradePlan) -> bool:
+    if plan.action == "buy_call":
+        return spy_price >= plan.target_price
+    if plan.action == "buy_put":
+        return spy_price <= plan.target_price
+    return False

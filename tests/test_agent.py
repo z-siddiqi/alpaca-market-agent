@@ -6,11 +6,11 @@ from typing import Any
 import httpx
 import pytest
 
-from alpaca_market_agent.agent import AgentEvaluator
-from alpaca_market_agent.alpaca import AlpacaClient
-from alpaca_market_agent.config import Settings
-from alpaca_market_agent.mcp import AlpacaMcpClient
-from alpaca_market_agent.models import (
+from market_agent.agent import AgentEvaluator
+from market_agent.alpaca import AlpacaClient
+from market_agent.config import Settings
+from market_agent.mcp import AlpacaMcpClient
+from market_agent.models import (
     AccountState,
     AgentDecision,
     EntryWindow,

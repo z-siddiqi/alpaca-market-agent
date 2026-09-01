@@ -1,8 +1,8 @@
 from datetime import UTC, datetime
 
-from alpaca_market_agent.models import EntryWindow, MarketClockState, OrderState, PositionState
-from alpaca_market_agent.risk import is_protective_stop, protective_stop_price
-from alpaca_market_agent.tick import (
+from market_agent.models import EntryWindow, MarketClockState, OrderState, PositionState
+from market_agent.risk import is_protective_stop, protective_stop_price
+from market_agent.tick import (
     build_account_state,
     build_exit_reasons,
     mandatory_order_cancellations,
@@ -112,5 +112,3 @@ def test_exit_controls_use_account_and_alpaca_state() -> None:
     )
     assert protective_stop_price(position) == 2.6
     assert is_protective_stop(protective_stop)
-
-    assert protective_stop_price(position, existing_stop_price=3) == 3

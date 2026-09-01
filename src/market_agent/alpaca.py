@@ -4,8 +4,8 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
-from alpaca_market_agent.config import Settings
-from alpaca_market_agent.models import Bar
+from market_agent.config import Settings
+from market_agent.models import Bar
 
 ET = ZoneInfo("America/New_York")
 

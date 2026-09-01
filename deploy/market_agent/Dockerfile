@@ -6,9 +6,8 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 COPY pyproject.toml uv.lock README.md ./
-COPY src ./src
-COPY main.py ./
+COPY src/market_agent ./src/market_agent
 
 RUN pip install --no-cache-dir .
 
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}"]
+CMD ["sh", "-c", "uvicorn market_agent.service:app --host 0.0.0.0 --port ${PORT:-8080}"]

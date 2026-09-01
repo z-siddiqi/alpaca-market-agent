@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
-from position_watcher.models import Position, TradePlan
-from position_watcher.rules import (
+from risk_watcher.models import Position, TradePlan
+from risk_watcher.rules import (
     breakeven_trigger_price,
     loss_stop_price,
     profit_target_price,

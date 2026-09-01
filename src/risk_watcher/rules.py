@@ -1,6 +1,6 @@
 from decimal import ROUND_HALF_UP, Decimal
 
-from position_watcher.models import Position, TradePlan
+from risk_watcher.models import Position, TradePlan
 
 
 def cents(value: float) -> float:

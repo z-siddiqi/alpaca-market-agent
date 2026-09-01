@@ -4,9 +4,9 @@ import math
 from dataclasses import dataclass
 from datetime import UTC, datetime, time
 
-from alpaca_market_agent.alpaca import AlpacaClient
-from alpaca_market_agent.config import Settings
-from alpaca_market_agent.models import (
+from market_agent.alpaca import AlpacaClient
+from market_agent.config import Settings
+from market_agent.models import (
     AgentDecision,
     DecisionRecord,
     OrderState,
@@ -14,10 +14,8 @@ from alpaca_market_agent.models import (
     TickContext,
     ToolCallRecord,
 )
-from alpaca_market_agent.policy import (
-    PREMIUM_BREAKER_FRACTION,
-)
-from alpaca_market_agent.tick import ET, build_orders, build_positions
+from market_agent.policy import PREMIUM_BREAKER_FRACTION
+from market_agent.tick import ET, build_orders, build_positions
 
 
 @dataclass(frozen=True)
@@ -27,13 +25,9 @@ class RiskReconciliation:
     mandatory_exit: bool = False
 
 
-def protective_stop_price(
-    position: PositionState,
-    existing_stop_price: float | None = None,
-    loss_fraction: float = PREMIUM_BREAKER_FRACTION,
-) -> float:
-    stop_price = position.average_entry_price * (1 - loss_fraction)
-    return max(0.01, round(stop_price, 2), existing_stop_price or 0)
+def protective_stop_price(position: PositionState) -> float:
+    stop_price = position.average_entry_price * (1 - PREMIUM_BREAKER_FRACTION)
+    return max(0.01, round(stop_price, 2))
 
 
 def is_protective_stop(order: OrderState) -> bool:
@@ -174,28 +168,10 @@ class PositionRiskManager:
         if quantity <= 0 or not math.isclose(position.quantity, quantity):
             raise ValueError(f"option position quantity is invalid: {position.quantity}")
         protective_orders = [order for order in symbol_orders if is_protective_stop(order)]
-        existing_stop_price = max(
-            (order.stop_price or 0 for order in protective_orders),
-            default=0,
-        )
-        plan = context.trade_plan
-        stop_price = protective_stop_price(
-            position,
-            existing_stop_price,
-            loss_fraction=(
-                plan.premium_loss_fraction
-                if plan is not None and plan.option_symbol == position.symbol
-                else PREMIUM_BREAKER_FRACTION
-            ),
-        )
-        if any(
-            order.quantity == quantity
-            and order.stop_price is not None
-            and math.isclose(order.stop_price, stop_price, rel_tol=0, abs_tol=1e-9)
-            for order in protective_orders
-        ):
+        if any(order.quantity == quantity for order in protective_orders):
             return []
 
+        stop_price = protective_stop_price(position)
         actions: list[ToolCallRecord] = []
         for order in protective_orders:
             await self.alpaca.cancel_order(order.order_id)

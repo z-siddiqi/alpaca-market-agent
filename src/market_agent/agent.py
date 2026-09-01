@@ -6,8 +6,8 @@ from typing import Any, Protocol
 import httpx
 from pydantic import ValidationError
 
-from alpaca_market_agent.config import Settings
-from alpaca_market_agent.models import (
+from market_agent.config import Settings
+from market_agent.models import (
     AgentDecision,
     AgentDecisionDraft,
     DecisionRecord,
@@ -15,7 +15,7 @@ from alpaca_market_agent.models import (
     TickContext,
     ToolCallRecord,
 )
-from alpaca_market_agent.policy import validated_option_evidence
+from market_agent.policy import validated_option_evidence
 
 SYSTEM_PROMPT = """You are an autonomous SPY options agent operating a dedicated Alpaca
 paper account. Treat trade as a two-sided auction. Inside established value normally

@@ -3,7 +3,7 @@ from datetime import date, time
 from decimal import ROUND_FLOOR, Decimal
 from zoneinfo import ZoneInfo
 
-from alpaca_market_agent.models import Bar, OpeningContext, PeriodSummary, SessionPerception
+from market_agent.models import Bar, OpeningContext, PeriodSummary, SessionPerception
 
 ET = ZoneInfo("America/New_York")
 ROW_CENTS = 10

@@ -8,4 +8,6 @@
 __pycache__
 *.py[cod]
 data
+docs
 logs
+tests

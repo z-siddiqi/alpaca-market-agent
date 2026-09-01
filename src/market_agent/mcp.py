@@ -9,8 +9,8 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from pydantic import ValidationError
 
-from alpaca_market_agent.config import Settings
-from alpaca_market_agent.models import (
+from market_agent.config import Settings
+from market_agent.models import (
     AgentDecision,
     OptionOrderProposal,
     OptionOrderValidation,
@@ -18,7 +18,7 @@ from alpaca_market_agent.models import (
     TickContext,
     ToolCallRecord,
 )
-from alpaca_market_agent.policy import validate_option_order
+from market_agent.policy import validate_option_order
 
 VALIDATE_OPTION_ORDER = "validate_option_order"
 VALIDATE_OPTION_ORDER_TOOL = {

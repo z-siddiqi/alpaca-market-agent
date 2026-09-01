@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from alpaca_market_agent.models import (
+from market_agent.models import (
     OptionEvidence,
     OptionOrderProposal,
     OptionOrderValidation,

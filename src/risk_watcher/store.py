@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from google.cloud import firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
 
-from position_watcher.models import TradePlan
+from risk_watcher.models import TradePlan
 
 
 class Store:

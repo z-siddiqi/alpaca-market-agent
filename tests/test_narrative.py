@@ -2,9 +2,9 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
-from alpaca_market_agent.models import BalancedLevels, Bar, NarrativeDraft
-from alpaca_market_agent.narrative import validate_levels
-from alpaca_market_agent.profile import build_opening_context, build_session_perception
+from market_agent.models import BalancedLevels, Bar, NarrativeDraft
+from market_agent.narrative import validate_levels
+from market_agent.profile import build_opening_context, build_session_perception
 
 
 def make_bar(minute: int, base: float, *, day: int = 27) -> Bar:

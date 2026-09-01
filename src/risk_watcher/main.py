@@ -7,19 +7,19 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 
-from position_watcher.alpaca import AlpacaClient, quote_is_fresh
-from position_watcher.config import Settings
-from position_watcher.models import Order, Position, TradePlan
-from position_watcher.rules import (
+from risk_watcher.alpaca import AlpacaClient, quote_is_fresh
+from risk_watcher.config import Settings
+from risk_watcher.models import Order, Position, TradePlan
+from risk_watcher.rules import (
     breakeven_trigger_price,
     loss_stop_price,
     profit_target_price,
 )
-from position_watcher.store import Store
+from risk_watcher.store import Store
 
 DAILY_LOSS_FRACTION = 0.10
 CLOSING_BUFFER = timedelta(minutes=15)
-LOG = logging.getLogger("position_watcher")
+LOG = logging.getLogger("risk_watcher")
 
 
 class PositionWatcher:

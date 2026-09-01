@@ -4,7 +4,7 @@ from google.api_core.exceptions import Conflict
 from google.cloud.firestore_v1 import AsyncClient
 from google.cloud.firestore_v1.base_query import FieldFilter
 
-from alpaca_market_agent.models import DecisionRecord, NarrativeRecord, TradePlan
+from market_agent.models import DecisionRecord, NarrativeRecord, TradePlan
 
 
 class NarrativeStore:

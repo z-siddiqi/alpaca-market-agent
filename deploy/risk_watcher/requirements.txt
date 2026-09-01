@@ -1,0 +1,2 @@
+google-cloud-firestore==2.29.0
+httpx==0.28.1

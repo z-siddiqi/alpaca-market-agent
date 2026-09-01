@@ -52,7 +52,7 @@ Alpaca MCP is the model's interface for targeted option data and paper trading.
 ```bash
 uv sync
 gcloud auth application-default login
-uv run uvicorn main:app --reload
+uv run uvicorn market_agent.service:app --reload
 ```
 
 After the first five-minute SPY bar completes, generate the session narrative:

@@ -1,8 +1,13 @@
 .gcloudignore
+.git
 .venv
+.env
+.env.*
 __pycache__
+*.py[cod]
 .pytest_cache
 .ruff_cache
+data
+docs
+logs
 tests
-README.md
-*.py[cod]

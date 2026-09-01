@@ -5,8 +5,8 @@ from typing import Any
 import httpx
 from pydantic import ValidationError
 
-from alpaca_market_agent.config import Settings
-from alpaca_market_agent.models import (
+from market_agent.config import Settings
+from market_agent.models import (
     AboveStructureLevels,
     BalancedLevels,
     BelowStructureLevels,

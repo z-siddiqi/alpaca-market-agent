@@ -188,8 +188,8 @@ backstop.
 
 The reasoning service does not keep Alpaca WebSockets alive between requests.
 The watcher starts once each trading day, polls the active option quote and
-reconciles broker state until the session ends. Its isolated `watcher/` build
-context contains only HTTP and Firestore runtime dependencies.
+reconciles broker state until the session ends. Its separate image copies only
+`src/risk_watcher` and installs HTTP and Firestore runtime dependencies.
 
 The Python service exposes an HTTP generation endpoint and listens on the
 platform-provided `PORT`, making it suitable for Cloud Run. Firestore stores one

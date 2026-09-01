@@ -3,8 +3,8 @@ from typing import Any
 
 import httpx
 
-from position_watcher.config import Settings
-from position_watcher.models import Account, Clock, Order, Position, Quote
+from risk_watcher.config import Settings
+from risk_watcher.models import Account, Clock, Order, Position, Quote
 
 
 class AlpacaClient:

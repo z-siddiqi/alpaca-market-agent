@@ -1,0 +1,6 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "-f", "deploy/risk_watcher/Dockerfile", "-t", "${_IMAGE}", "."]
+
+images:
+  - "${_IMAGE}"

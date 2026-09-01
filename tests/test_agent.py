@@ -195,7 +195,7 @@ def test_runtime_submits_only_the_validated_option_order() -> None:
         )
 
 
-def test_option_chain_defaults_to_spy() -> None:
+def test_option_data_defaults_to_spy_and_indicative_feed() -> None:
     client = AlpacaMcpClient(Settings(), make_context())
     session = FakeMcpSession()
     client._session = session  # type: ignore[assignment]
@@ -205,8 +205,20 @@ def test_option_chain_defaults_to_spy() -> None:
     _result, blocked = asyncio.run(client.call("get_option_chain", arguments))
 
     assert not blocked
-    assert arguments == {"underlying_symbol": "SPY"}
-    assert session.calls == [("get_option_chain", {"underlying_symbol": "SPY"})]
+    assert arguments == {"underlying_symbol": "SPY", "feed": "indicative"}
+
+    snapshot = {"symbols": "SPY260831P00771000", "feed": "opra"}
+    _result, blocked = asyncio.run(client.call("get_option_snapshot", snapshot))
+
+    assert not blocked
+    assert snapshot["feed"] == "indicative"
+    assert session.calls == [
+        ("get_option_chain", {"underlying_symbol": "SPY", "feed": "indicative"}),
+        (
+            "get_option_snapshot",
+            {"symbols": "SPY260831P00771000", "feed": "indicative"},
+        ),
+    ]
 
 
 def test_native_option_stop_payload() -> None:
@@ -245,3 +257,56 @@ def test_agent_extracts_fenced_json_after_analysis() -> None:
     parsed = AgentEvaluator._parse_json('Analysis first.\n```json\n{"action":"hold"}\n```')
 
     assert parsed == {"action": "hold"}
+
+
+def test_agent_can_continue_past_eight_tool_rounds() -> None:
+    model_calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal model_calls
+        model_calls += 1
+        if model_calls <= 9:
+            message = {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "id": f"call-{model_calls}",
+                        "type": "function",
+                        "function": {"name": "inspect", "arguments": "{}"},
+                    }
+                ],
+            }
+        else:
+            message = {
+                "role": "assistant",
+                "content": json.dumps(
+                    {
+                        "action": "hold",
+                        "auctionState": "unclear",
+                        "confidence": 0,
+                        "thesis": "No trade is justified.",
+                        "holdReasons": ["insufficient_evidence"],
+                    }
+                ),
+            }
+        return httpx.Response(200, json={"choices": [{"message": message}]})
+
+    class Tools:
+        tools: list[dict[str, Any]] = []
+
+        async def call(self, name: str, _arguments: dict[str, Any]) -> tuple[Any, bool]:
+            assert name == "inspect"
+            return {"ok": True}, False
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    evaluator = AgentEvaluator(
+        Settings(featherless_api_key="test", agent_loop_timeout_seconds=2),
+        client=http,
+    )
+
+    record = asyncio.run(evaluator.evaluate("2026-08-28-1000", make_context(), Tools()))
+
+    assert record.decision.hold_reasons == ["insufficient_evidence"]
+    assert len(record.tool_calls) == 9
+    assert model_calls == 10
+    asyncio.run(http.aclose())

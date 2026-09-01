@@ -61,6 +61,11 @@ WRITE_TOOLS = {
     "replace_order_by_id",
 }
 ALLOWED_TOOLS = READ_TOOLS | WRITE_TOOLS
+INDICATIVE_OPTION_DATA_TOOLS = {
+    "get_option_chain",
+    "get_option_latest_quote",
+    "get_option_snapshot",
+}
 
 
 class AlpacaMcpClient:
@@ -96,18 +101,34 @@ class AlpacaMcpClient:
             for tool in listed.tools
             if tool.name in ALLOWED_TOOLS
         }
-        self._tools = [
-            {
-                "type": "function",
-                "function": {
-                    "name": tool.name,
-                    "description": tool.description or "",
-                    "parameters": tool.inputSchema,
-                },
-            }
-            for tool in listed.tools
-            if tool.name in ALLOWED_TOOLS
-        ]
+        self._tools = []
+        for tool in listed.tools:
+            if tool.name not in ALLOWED_TOOLS:
+                continue
+            parameters = tool.inputSchema
+            if tool.name in INDICATIVE_OPTION_DATA_TOOLS:
+                parameters = {
+                    **parameters,
+                    "properties": {
+                        **parameters.get("properties", {}),
+                        "feed": {
+                            "type": "string",
+                            "enum": ["indicative"],
+                            "default": "indicative",
+                            "description": "The options feed available to this paper account.",
+                        },
+                    },
+                }
+            self._tools.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool.name,
+                        "description": tool.description or "",
+                        "parameters": parameters,
+                    },
+                }
+            )
         self._tools.append(VALIDATE_OPTION_ORDER_TOOL)
         return self
 
@@ -126,6 +147,8 @@ class AlpacaMcpClient:
             return {"error": f"tool {name} is not available"}, True
         if name == "get_option_chain" and not arguments.get("underlying_symbol"):
             arguments["underlying_symbol"] = "SPY"
+        if name in INDICATIVE_OPTION_DATA_TOOLS:
+            arguments["feed"] = "indicative"
         missing = sorted(
             argument
             for argument in self._required_arguments.get(name, set())
@@ -201,7 +224,7 @@ class AlpacaMcpClient:
 
         snapshot_result = await self._call_raw(
             "get_option_snapshot",
-            {"symbols": proposal.symbol},
+            {"symbols": proposal.symbol, "feed": "indicative"},
         )
         checked_at = datetime.now(UTC)
         snapshot = _find_snapshot(snapshot_result, proposal.symbol)

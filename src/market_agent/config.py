@@ -17,7 +17,7 @@ class Settings(BaseSettings):
 
     alpaca_paper_trade: bool = True
     order_submission_enabled: bool = False
-    max_agent_tool_calls: int = 6
+    agent_loop_timeout_seconds: float = 240
 
     gcp_project_id: str | None = None
 

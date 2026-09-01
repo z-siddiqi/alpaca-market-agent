@@ -99,76 +99,80 @@ class AgentEvaluator:
         tool_calls: list[ToolCallRecord] = []
         validation_error: str | None = None
 
-        for _attempt in range(self.settings.max_agent_tool_calls + 2):
-            if validation_error is not None:
-                messages.append(
-                    {
-                        "role": "user",
-                        "content": (
-                            "Your decision failed validation. Return the full corrected JSON "
-                            f"object only. Error: {validation_error}"
-                        ),
-                    }
-                )
-                validation_error = None
-
-            message = await self._call_model(messages, tools.tools)
-            requested = message.get("tool_calls") or []
-            if requested:
-                messages.append(message)
-                for call in requested:
-                    function = call.get("function", {})
-                    name = str(function.get("name", ""))
-                    arguments = self._arguments(function.get("arguments", "{}"))
-                    result, blocked = await tools.call(name, arguments)
-                    tool_calls.append(
-                        ToolCallRecord(
-                            name=name,
-                            arguments=arguments,
-                            result=result,
-                            blocked=blocked,
-                            called_at=datetime.now(UTC),
+        try:
+            async with asyncio.timeout(self.settings.agent_loop_timeout_seconds):
+                while True:
+                    if validation_error is not None:
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": (
+                                    "Your decision failed validation. Return the full corrected "
+                                    f"JSON object only. Error: {validation_error}"
+                                ),
+                            }
                         )
+                        validation_error = None
+
+                    message = await self._call_model(messages, tools.tools)
+                    requested = message.get("tool_calls") or []
+                    if requested:
+                        messages.append(message)
+                        for call in requested:
+                            function = call.get("function", {})
+                            name = str(function.get("name", ""))
+                            arguments = self._arguments(function.get("arguments", "{}"))
+                            result, blocked = await tools.call(name, arguments)
+                            tool_calls.append(
+                                ToolCallRecord(
+                                    name=name,
+                                    arguments=arguments,
+                                    result=result,
+                                    blocked=blocked,
+                                    called_at=datetime.now(UTC),
+                                )
+                            )
+                            messages.append(
+                                {
+                                    "role": "tool",
+                                    "tool_call_id": call["id"],
+                                    "content": json.dumps(result, separators=(",", ":")),
+                                }
+                            )
+                        continue
+
+                    try:
+                        draft = AgentDecisionDraft.model_validate(
+                            self._parse_json(message.get("content"))
+                        )
+                        option_evidence = self._validate_decision(draft, context, tool_calls)
+                    except (ValidationError, ValueError, json.JSONDecodeError) as error:
+                        validation_error = str(error)
+                        continue
+
+                    evaluated_at = context.evaluated_at
+                    decision = AgentDecision(
+                        **draft.model_dump(),
+                        decision_id=tick_id,
+                        evaluated_at=evaluated_at,
+                        option_evidence=option_evidence,
                     )
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": call["id"],
-                            "content": json.dumps(result, separators=(",", ":")),
-                        }
+                    return DecisionRecord(
+                        tick_id=tick_id,
+                        trading_date=context.trading_date,
+                        model=self.settings.agent_model,
+                        context=context,
+                        decision=decision,
+                        tool_calls=tool_calls,
+                        created_at=datetime.now(UTC),
                     )
-                continue
-
-            try:
-                draft = AgentDecisionDraft.model_validate(self._parse_json(message.get("content")))
-                option_evidence = self._validate_decision(draft, context, tool_calls)
-            except (ValidationError, ValueError, json.JSONDecodeError) as error:
-                validation_error = str(error)
-                continue
-
-            evaluated_at = context.evaluated_at
-            decision = AgentDecision(
-                **draft.model_dump(),
-                decision_id=tick_id,
-                evaluated_at=evaluated_at,
-                option_evidence=option_evidence,
+        except TimeoutError:
+            return self._fallback_hold(
+                tick_id,
+                context,
+                tool_calls,
+                "agent_deadline",
             )
-            return DecisionRecord(
-                tick_id=tick_id,
-                trading_date=context.trading_date,
-                model=self.settings.agent_model,
-                context=context,
-                decision=decision,
-                tool_calls=tool_calls,
-                created_at=datetime.now(UTC),
-            )
-
-        return self._fallback_hold(
-            tick_id,
-            context,
-            tool_calls,
-            "agent_invalid_decision",
-        )
 
     def _fallback_hold(
         self,

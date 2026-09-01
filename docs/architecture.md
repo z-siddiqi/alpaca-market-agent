@@ -143,8 +143,12 @@ results, while raw responses remain available in the audit store.
 
 An ordinary hold should require no tool calls. Context includes at most twelve
 recent five-minute bars and eight narrowed option candidates, not an unfiltered
-chain or prior conversation transcript. Concrete token and tool-call limits will
-be set from observed runs rather than estimated in advance.
+chain or prior conversation transcript. The agent has no fixed model-round or
+tool-call count limit. A 240-second evaluation deadline prevents a stalled turn
+from overlapping the next scheduled tick indefinitely.
+
+Option chain, quote, and snapshot calls are normalized to Alpaca's indicative
+feed because the competition paper account does not include real-time OPRA data.
 
 ## Failure behavior
 

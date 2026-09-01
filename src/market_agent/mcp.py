@@ -70,6 +70,7 @@ class AlpacaMcpClient:
         self._stack: AsyncExitStack | None = None
         self._session: ClientSession | None = None
         self._tools: list[dict[str, Any]] = []
+        self._required_arguments: dict[str, set[str]] = {}
         self._validated_entry: OptionOrderProposal | None = None
 
     async def __aenter__(self) -> "AlpacaMcpClient":
@@ -90,6 +91,11 @@ class AlpacaMcpClient:
         self._session = await self._stack.enter_async_context(ClientSession(read, write))
         await self._session.initialize()
         listed = await self._session.list_tools()
+        self._required_arguments = {
+            tool.name: set(tool.inputSchema.get("required", []))
+            for tool in listed.tools
+            if tool.name in ALLOWED_TOOLS
+        }
         self._tools = [
             {
                 "type": "function",
@@ -118,6 +124,15 @@ class AlpacaMcpClient:
             return await self._validate_option_order(arguments), False
         if name not in ALLOWED_TOOLS:
             return {"error": f"tool {name} is not available"}, True
+        if name == "get_option_chain" and not arguments.get("underlying_symbol"):
+            arguments["underlying_symbol"] = "SPY"
+        missing = sorted(
+            argument
+            for argument in self._required_arguments.get(name, set())
+            if arguments.get(argument) in (None, "")
+        )
+        if missing:
+            return {"error": f"missing required arguments: {', '.join(missing)}"}, True
         if name in WRITE_TOOLS and not self.settings.order_submission_enabled:
             return {
                 "error": "order submission is disabled",

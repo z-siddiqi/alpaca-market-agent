@@ -115,8 +115,6 @@ class AgentEvaluator:
             message = await self._call_model(messages, tools.tools)
             requested = message.get("tool_calls") or []
             if requested:
-                if len(tool_calls) + len(requested) > self.settings.max_agent_tool_calls:
-                    raise ValueError("agent exceeded the tool-call limit")
                 messages.append(message)
                 for call in requested:
                     function = call.get("function", {})
@@ -165,7 +163,39 @@ class AgentEvaluator:
                 created_at=datetime.now(UTC),
             )
 
-        raise ValueError("agent did not return a valid decision")
+        return self._fallback_hold(
+            tick_id,
+            context,
+            tool_calls,
+            "agent_invalid_decision",
+        )
+
+    def _fallback_hold(
+        self,
+        tick_id: str,
+        context: TickContext,
+        tool_calls: list[ToolCallRecord],
+        reason: str,
+    ) -> DecisionRecord:
+        evaluated_at = context.evaluated_at
+        return DecisionRecord(
+            tick_id=tick_id,
+            trading_date=context.trading_date,
+            model=self.settings.agent_model,
+            context=context,
+            decision=AgentDecision(
+                decision_id=tick_id,
+                evaluated_at=evaluated_at,
+                action="hold",
+                auction_state="unclear",
+                confidence=0,
+                thesis="The model did not complete a valid decision.",
+                policy_checks=[],
+                hold_reasons=[reason],
+            ),
+            tool_calls=tool_calls,
+            created_at=datetime.now(UTC),
+        )
 
     async def _call_model(
         self,

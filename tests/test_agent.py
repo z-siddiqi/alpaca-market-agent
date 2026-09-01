@@ -29,8 +29,14 @@ class FakeMcpResult:
 
 
 class FakeMcpSession:
-    async def call_tool(self, name: str, _arguments: dict[str, Any]) -> FakeMcpResult:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> FakeMcpResult:
+        self.calls.append((name, arguments))
         symbol = "SPY260831P00771000"
+        if name == "get_option_chain":
+            return FakeMcpResult({"structuredContent": {"data": {"snapshots": {}}}})
         if name == "get_option_contract":
             return FakeMcpResult(
                 {
@@ -187,6 +193,20 @@ def test_runtime_submits_only_the_validated_option_order() -> None:
         asyncio.run(
             client.submit_validated_entry(decision.model_copy(update={"limit_price": 2.52}))
         )
+
+
+def test_option_chain_defaults_to_spy() -> None:
+    client = AlpacaMcpClient(Settings(), make_context())
+    session = FakeMcpSession()
+    client._session = session  # type: ignore[assignment]
+    client._required_arguments = {"get_option_chain": {"underlying_symbol"}}
+    arguments: dict[str, Any] = {}
+
+    _result, blocked = asyncio.run(client.call("get_option_chain", arguments))
+
+    assert not blocked
+    assert arguments == {"underlying_symbol": "SPY"}
+    assert session.calls == [("get_option_chain", {"underlying_symbol": "SPY"})]
 
 
 def test_native_option_stop_payload() -> None:

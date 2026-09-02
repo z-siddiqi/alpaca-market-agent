@@ -64,7 +64,6 @@ class Order:
     symbol: str
     side: str
     order_type: str
-    quantity: int
     stop_price: float | None
     limit_price: float | None
 
@@ -75,7 +74,6 @@ class Order:
             symbol=str(payload.get("symbol", "")),
             side=str(payload.get("side", "")),
             order_type=str(payload.get("type", "")),
-            quantity=int(number(payload.get("qty"))),
             stop_price=(
                 number(payload.get("stop_price"))
                 if payload.get("stop_price") is not None
@@ -96,16 +94,12 @@ class Order:
 @dataclass(frozen=True)
 class Quote:
     bid: float
-    ask: float
-    bid_size: float
     timestamp: datetime
 
     @classmethod
     def from_payload(cls, payload: dict[str, object]) -> "Quote":
         return cls(
             bid=number(payload.get("bp")),
-            ask=number(payload.get("ap")),
-            bid_size=number(payload.get("bs")),
             timestamp=datetime.fromisoformat(str(payload["t"]).replace("Z", "+00:00")),
         )
 
@@ -127,7 +121,6 @@ class Trade:
 class TradePlan:
     decision_id: str
     action: str
-    option_symbol: str
     created_at: datetime
     target_price: float
     premium_loss_fraction: float
@@ -139,7 +132,6 @@ class TradePlan:
         return cls(
             decision_id=str(payload["decisionId"]),
             action=str(payload["action"]),
-            option_symbol=str(payload["optionSymbol"]),
             created_at=datetime.fromisoformat(str(payload["createdAt"]).replace("Z", "+00:00")),
             target_price=number(payload["targetPrice"]),
             premium_loss_fraction=number(payload["premiumLossFraction"]),

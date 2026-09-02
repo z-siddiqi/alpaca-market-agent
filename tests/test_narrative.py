@@ -6,8 +6,11 @@ import pytest
 from market_agent.alpaca import AlpacaClient
 from market_agent.config import Settings
 from market_agent.models import BalancedLevels, Bar, NarrativeDraft
-from market_agent.narrative import validate_levels
-from market_agent.profile import build_opening_context, build_session_perception
+from market_agent.narrative import (
+    build_opening_context,
+    build_session_perception,
+)
+from market_agent.narrative.tools import validate_level_map
 
 
 def make_bar(minute: int, base: float, *, day: int = 27) -> Bar:
@@ -91,4 +94,4 @@ def test_narrative_cannot_invent_a_level() -> None:
     )
 
     with pytest.raises(ValueError, match="outside allowed_references"):
-        validate_levels(draft, {"poc": 100, "vah": 101, "val": 99})
+        validate_level_map(draft.levels, {"poc": 100, "vah": 101, "val": 99})

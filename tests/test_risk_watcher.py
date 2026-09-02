@@ -18,7 +18,6 @@ def test_option_exit_prices_come_from_the_durable_plan() -> None:
     plan = TradePlan(
         decision_id="2026-09-01-1000",
         action="buy_put",
-        option_symbol=position.symbol,
         created_at=datetime(2026, 9, 1, 14, tzinfo=UTC),
         target_price=647,
         premium_loss_fraction=0.35,

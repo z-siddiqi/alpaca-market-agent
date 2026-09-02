@@ -5,23 +5,26 @@ from datetime import date
 from fastapi import FastAPI, HTTPException
 from httpx import HTTPError
 
-from market_agent.agent import AgentEvaluator
+from market_agent.agent import AgentEvaluator, AlpacaMcpClient
 from market_agent.alpaca import AlpacaClient
 from market_agent.config import Settings
-from market_agent.mcp import AlpacaMcpClient
 from market_agent.models import (
     DecisionRecord,
     GenerateNarrativeRequest,
     NarrativeRecord,
     TradePlan,
 )
-from market_agent.narrative import NarrativeGenerator, narrative_date
+from market_agent.narrative import (
+    NarrativeGenerator,
+    build_opening_context,
+    build_session_perception,
+    narrative_date,
+)
 from market_agent.policy import (
     PREMIUM_BREAKER_FRACTION,
     PREMIUM_BREAKEVEN_TRIGGER_FRACTION,
     PREMIUM_PROFIT_TARGET_FRACTION,
 )
-from market_agent.profile import build_opening_context, build_session_perception
 from market_agent.risk import PositionRiskManager, forced_exit_record
 from market_agent.storage import DecisionStore, NarrativeStore, TradePlanStore
 from market_agent.tick import TickContextBuilder, build_entry_window, parse_clock, tick_id

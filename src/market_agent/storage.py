@@ -6,6 +6,11 @@ from google.cloud.firestore_v1.base_query import FieldFilter
 
 from market_agent.models import DecisionRecord, NarrativeRecord, TradePlan
 
+# `decisions` also holds lean markers for scheduled ticks that never produced a
+# record. They are not valid DecisionRecords; web/render.py renders them as
+# placeholder rows and reads the same sentinel.
+MISSING_STATUS = "missing"
+
 
 class NarrativeStore:
     def __init__(self, project: str | None = None, client: AsyncClient | None = None) -> None:
@@ -52,17 +57,25 @@ class DecisionStore:
         snapshot = await self._document(tick_id).get()
         if not snapshot.exists:
             return None
-        return DecisionRecord.model_validate(snapshot.to_dict())
+        payload = snapshot.to_dict() or {}
+        if payload.get("status") == MISSING_STATUS:
+            return None
+        return DecisionRecord.model_validate(payload)
 
     async def put(self, record: DecisionRecord) -> DecisionRecord:
         document = self._document(record.tick_id)
+        payload = record.model_dump(mode="json", by_alias=True)
         try:
-            await document.create(record.model_dump(mode="json", by_alias=True))
+            await document.create(payload)
         except Conflict:
-            existing = await self.get(record.tick_id)
-            if existing is None:
+            snapshot = await document.get()
+            if not snapshot.exists:
                 raise
-            return existing
+            stored = snapshot.to_dict() or {}
+            if stored.get("status") != MISSING_STATUS:
+                return DecisionRecord.model_validate(stored)
+            # A real evaluation supersedes the placeholder recorded for this tick.
+            await document.set(payload)
         return record
 
     def close(self) -> None:

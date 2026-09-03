@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Architecture and daily decision audits for Augur's autonomous SPY options agent.">
+  <title>Augur Market Agent</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --background: #f7f7f4;
+      --text: #1d1e1b;
+      --muted: #666a62;
+      --line: #d7d9d2;
+      --accent: #256342;
+      --panel: #efefeb;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--background);
+      color: var(--text);
+      font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    a { color: inherit; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .page { width: min(960px, calc(100% - 40px)); margin: 0 auto; }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 60px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    header a { text-decoration: none; }
+    .brand { font-weight: 650; }
+    .nav-link { color: var(--muted); font-size: 14px; }
+    .nav-link:hover { color: var(--text); }
+
+    main > section { padding: 56px 0; }
+
+    .intro { max-width: 720px; padding: 72px 0 64px; }
+
+    h1 {
+      margin: 0 0 18px;
+      font-size: clamp(36px, 6vw, 56px);
+      font-weight: 650;
+      letter-spacing: -.035em;
+      line-height: 1.05;
+    }
+
+    .intro p { margin: 0; color: var(--muted); font-size: 18px; }
+
+    .actions { display: flex; gap: 22px; margin-top: 28px; }
+    .actions a { color: var(--accent); font-weight: 600; text-underline-offset: 4px; }
+
+    h2 {
+      margin: 0 0 28px;
+      font-size: 25px;
+      font-weight: 650;
+      letter-spacing: -.02em;
+    }
+
+    .architecture { overflow-x: auto; }
+    .architecture svg { display: block; width: 100%; min-width: 780px; height: auto; }
+    .architecture .node { stroke-width: 1; }
+    .architecture .node.trigger { fill: #f1f0eb; stroke: #a9ada4; stroke-dasharray: 4 3; }
+    .architecture .node.reasoning { fill: #edf3ee; stroke: var(--accent); stroke-width: 1.5; }
+    .architecture .node.interface { fill: #f7f7f4; stroke: #858b82; }
+    .architecture .node.execution { fill: #f7f7f4; stroke: #496756; stroke-width: 1.5; }
+    .architecture .node.state { fill: #eceeea; stroke: #a9ada4; }
+    .architecture .node.risk { fill: #f0f3ed; stroke: #708173; }
+    .architecture .kind { fill: #777c73; font: 600 10px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 1px; }
+    .architecture .label { fill: var(--text); font: 600 14px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .architecture .detail { fill: var(--muted); font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .architecture .flow { fill: none; stroke: var(--accent); stroke-width: 1.25; }
+    .architecture .flow.subtle { stroke: #8a8f84; }
+    .architecture .rail { fill: none; stroke: #a9ada4; stroke-width: 1; }
+    .architecture .tickmark { stroke: #8a8f84; stroke-width: 1; }
+    .architecture .time { fill: #777c73; font: 600 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .architecture .pulse { stroke: var(--accent); stroke-width: 1.5; opacity: .45; }
+    .architecture .cut { fill: none; stroke: var(--accent); stroke-width: 1; stroke-dasharray: 3 3; }
+    .architecture .boundary { fill: none; stroke: #b6bab1; stroke-width: 1; stroke-dasharray: 5 4; }
+
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      margin: 0;
+      border-top: 1px solid var(--line);
+    }
+    .controls div { padding: 18px 20px 18px 0; border-bottom: 1px solid var(--line); }
+    .controls div:not(:nth-child(3n + 1)) { padding-left: 20px; border-left: 1px solid var(--line); }
+    .controls dt { color: var(--muted); font-size: 13px; }
+    .controls dd { margin: 5px 0 0; font: 600 18px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+    .archive-heading {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 20px;
+    }
+    .archive-heading span { color: var(--muted); font-size: 13px; }
+
+    .audit-row {
+      display: grid;
+      grid-template-columns: 180px minmax(0, 1fr) auto;
+      gap: 20px;
+      align-items: center;
+      padding: 17px 0;
+      border-top: 1px solid var(--line);
+      text-decoration: none;
+    }
+    .audit-row:last-child { border-bottom: 1px solid var(--line); }
+    .audit-row span { color: var(--muted); }
+    .audit-row:hover time, .audit-row:hover span:last-child { color: var(--accent); }
+    .empty { color: var(--muted); padding: 18px 0; border-top: 1px solid var(--line); }
+
+    footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 28px 0 44px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    @media (max-width: 640px) {
+      .page { width: min(100% - 28px, 960px); }
+      main > section { padding: 42px 0; }
+      .intro { padding: 56px 0 48px; }
+      .intro p { font-size: 16px; }
+      .controls { grid-template-columns: repeat(2, 1fr); }
+      .controls div:not(:nth-child(3n + 1)) { padding-left: 0; border-left: 0; }
+      .controls div:nth-child(even) { padding-left: 16px; border-left: 1px solid var(--line); }
+      .audit-row { grid-template-columns: 1fr auto; }
+      .audit-row span:nth-child(2) { display: none; }
+      footer { display: block; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header>
+      <a class="brand" href="#top">Augur Market Agent</a>
+      <a class="nav-link" href="#audits">Daily audits</a>
+    </header>
+
+    <main id="top">
+      <div class="intro">
+        <h1>Autonomous SPY options trading through Alpaca.</h1>
+        <p>The agent builds a daily market narrative, reasons over live option data, executes through Alpaca MCP, and records each decision for review.</p>
+        <div class="actions">
+          <a href="{{LATEST_AUDIT}}">Latest audit</a>
+          <a href="#architecture">Architecture</a>
+        </div>
+      </div>
+
+      <section id="architecture">
+        <h2>Architecture</h2>
+        <div class="architecture">
+          <svg viewBox="0 0 1040 372" role="img" aria-labelledby="arch-title arch-desc">
+            <title id="arch-title">Two paths to the broker, one of them model-driven</title>
+            <desc id="arch-desc">The trading agent runs in a Cloud Run container alongside an Alpaca MCP server started as a local subprocess. The agent calls Alpaca directly to assemble context and enforce risk. The MCP server is the only route the model itself drives, and it is restricted to an allowlist of tools. Every evaluation is written to Firestore as a decision record.</desc>
+            <defs>
+              <marker id="arrow-accent" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M0 0L10 5L0 10z" fill="#256342"/>
+              </marker>
+              <marker id="arrow-muted" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M0 0L10 5L0 10z" fill="#8a8f84"/>
+              </marker>
+            </defs>
+
+            <path class="flow" marker-end="url(#arrow-accent)" d="M170 76V24H870V72"/>
+            <path class="flow" marker-start="url(#arrow-accent)" marker-end="url(#arrow-accent)" d="M260 131H300"/>
+            <path class="flow" marker-end="url(#arrow-accent)" d="M480 131H760"/>
+            <path class="flow subtle" marker-end="url(#arrow-muted)" d="M170 186V270"/>
+
+            <rect class="boundary" x="60" y="44" width="440" height="176" rx="2"/>
+            <text class="kind" x="78" y="66">CLOUD RUN CONTAINER</text>
+
+            <rect class="node reasoning" x="80" y="76" width="180" height="110" rx="2"/>
+            <text class="label" x="98" y="114">Trading agent</text>
+            <text class="detail" x="98" y="140">assembles context</text>
+            <text class="detail" x="98" y="160">validates orders</text>
+
+            <rect class="node interface" x="300" y="76" width="180" height="110" rx="2"/>
+            <text class="label" x="318" y="114">MCP server</text>
+            <text class="detail" x="318" y="140">allowlisted tools</text>
+            <text class="detail" x="318" y="160">model-driven</text>
+
+            <rect class="node execution" x="760" y="76" width="220" height="110" rx="2"/>
+            <text class="label" x="778" y="114">Alpaca</text>
+            <text class="detail" x="778" y="140">paper account</text>
+
+            <rect class="node state" x="80" y="270" width="180" height="76" rx="2"/>
+            <text class="label" x="98" y="302">Firestore</text>
+            <text class="detail" x="98" y="326">decision records</text>
+          </svg>
+        </div>
+      </section>
+
+      <section id="day">
+        <h2>How a day runs</h2>
+        <div class="architecture">
+          <svg viewBox="0 0 1040 320" role="img" aria-labelledby="day-title day-desc">
+            <title id="day-title">One trading day, from narrative to published audit</title>
+            <desc id="day-desc">At 09:35 the agent builds the daily narrative. From 09:40 to 15:55 it makes one decision every five minutes during regular trading hours, with a flatten backstop at 15:45. A risk watcher runs continuously alongside the whole session. At 16:10 the stored record is published as this site.</desc>
+            <defs>
+              <marker id="arrow-accent" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M0 0L10 5L0 10z" fill="#256342"/>
+              </marker>
+              <marker id="arrow-muted" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M0 0L10 5L0 10z" fill="#8a8f84"/>
+              </marker>
+            </defs>
+
+            <text class="kind" x="40" y="28">ONE TRADING DAY · ET</text>
+            <path class="rail" marker-end="url(#arrow-muted)" d="M40 74H1000"/>
+            <path class="tickmark" d="M105 68V80"/>
+            <text class="time" x="105" y="58" text-anchor="middle">09:35</text>
+            <path class="tickmark" d="M195 68V80"/>
+            <text class="time" x="195" y="58" text-anchor="middle">09:40</text>
+            <path class="tickmark" d="M700 68V80"/>
+            <text class="time" x="700" y="58" text-anchor="middle">15:45</text>
+            <path class="tickmark" d="M805 68V80"/>
+            <text class="time" x="805" y="58" text-anchor="middle">15:55</text>
+            <path class="tickmark" d="M925 68V80"/>
+            <text class="time" x="925" y="58" text-anchor="middle">16:10</text>
+
+            <path class="flow" marker-end="url(#arrow-accent)" d="M170 144H190"/>
+            <path class="flow" marker-end="url(#arrow-accent)" d="M810 144H850"/>
+
+            <rect class="node trigger" x="40" y="96" width="130" height="96" rx="2"/>
+            <text class="label" x="58" y="128">Narrative</text>
+            <text class="detail" x="58" y="152">daily plan</text>
+
+            <rect class="node reasoning" x="190" y="96" width="620" height="96" rx="2"/>
+            <text class="label" x="208" y="128">Decision tick</text>
+            <text class="detail" x="208" y="152">every 5 minutes, regular trading hours</text>
+            <path class="pulse" d="M214 166V178"/>
+            <path class="pulse" d="M242 166V178"/>
+            <path class="pulse" d="M270 166V178"/>
+            <path class="pulse" d="M298 166V178"/>
+            <path class="pulse" d="M326 166V178"/>
+            <path class="pulse" d="M354 166V178"/>
+            <path class="pulse" d="M382 166V178"/>
+            <path class="pulse" d="M410 166V178"/>
+            <path class="pulse" d="M438 166V178"/>
+            <path class="pulse" d="M466 166V178"/>
+            <path class="pulse" d="M494 166V178"/>
+            <path class="pulse" d="M522 166V178"/>
+            <path class="pulse" d="M550 166V178"/>
+            <path class="pulse" d="M578 166V178"/>
+            <path class="pulse" d="M606 166V178"/>
+            <path class="pulse" d="M634 166V178"/>
+            <path class="pulse" d="M662 166V178"/>
+            <path class="pulse" d="M690 166V178"/>
+            <path class="pulse" d="M718 166V178"/>
+            <path class="pulse" d="M746 166V178"/>
+            <path class="pulse" d="M774 166V178"/>
+            <path class="cut" d="M700 96V192"/>
+            <text class="detail" x="700" y="210" text-anchor="middle">flatten backstop</text>
+
+            <rect class="node interface" x="850" y="96" width="150" height="96" rx="2"/>
+            <text class="label" x="868" y="128">Publish</text>
+            <text class="detail" x="868" y="152">rebuilt daily</text>
+
+            <rect class="node risk" x="40" y="240" width="770" height="64" rx="2"/>
+            <text class="label" x="58" y="270">Risk watcher</text>
+            <text class="detail" x="58" y="292">continuous through the session · stops, break-even, targets</text>
+
+          </svg>
+        </div>
+      </section>
+
+      <section>
+        <h2>Risk controls</h2>
+        <dl class="controls">
+          <div><dt>Entry size</dt><dd>15 contracts</dd></div>
+          <div><dt>Expiry</dt><dd>1–5 DTE</dd></div>
+          <div><dt>Daily loss limit</dt><dd>10%</dd></div>
+          <div><dt>Premium stop</dt><dd>−35%</dd></div>
+          <div><dt>Break-even trigger</dt><dd>+20%</dd></div>
+          <div><dt>Profit target</dt><dd>+50%</dd></div>
+        </dl>
+      </section>
+
+      <section id="audits">
+        <div class="archive-heading">
+          <h2>Daily audits</h2>
+          <span>{{AUDIT_COUNT}} published</span>
+        </div>
+        <!-- AUDIT_LINKS -->
+      </section>
+    </main>
+
+    <footer>
+      <span>Alpaca AI Trading Agents Hackathon</span>
+      <span>Paper trading only · Not investment advice</span>
+    </footer>
+  </div>
+</body>
+</html>

@@ -9,7 +9,9 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.firebase/
 
 data/
 logs/
-
+audit/
+web/dist/

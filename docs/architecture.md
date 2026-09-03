@@ -175,6 +175,7 @@ delayed requests, and manual invocations do not depend on cron being market-awar
 | --- | --- | --- | --- |
 | Daily narrative | 09:36 ET weekdays | `POST /narratives/generate` | Provisioned |
 | Agent evaluation | Every five minutes during the RTH window | `POST /ticks/evaluate` | Enabled |
+| Web publish | 16:10 ET weekdays | Execute `web-publish` job | Enabled |
 | Position watcher | 09:35 ET weekdays | Cloud Run Job execution | Enabled |
 | Normal-session close backstop | 15:45 ET weekdays | `POST /positions/flatten` | Enabled |
 
@@ -200,3 +201,12 @@ The Python service exposes an HTTP generation endpoint and listens on the
 platform-provided `PORT`, making it suitable for Cloud Run. Firestore stores one
 immutable narrative document per trading date and will later hold decisions,
 order events, leases, and current runtime state.
+
+The `decisions` collection is heterogeneous. Most documents are `DecisionRecord`s
+written by `DecisionStore.put()`. A scheduled tick that never produced one is
+recorded instead as a lean marker carrying `tickId`, `tradingDate`, `evaluatedAt`,
+`status: "missing"`, `source`, and `createdAt`. Markers are deliberately not valid
+`DecisionRecord`s, so every reader handles them explicitly: `DecisionStore.get()`
+reports a marker as absent, letting the tick path re-evaluate rather than fail
+validation; `put()` overwrites a marker when a real evaluation arrives for that
+tick; and `web/render.py` renders one as a placeholder row in the audit timeline.

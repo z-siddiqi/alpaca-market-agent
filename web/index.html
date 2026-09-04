@@ -106,9 +106,22 @@
     }
     .archive-heading span { color: var(--muted); font-size: 13px; }
 
+    .gain { color: var(--accent); }
+    .loss { color: #a4423a; }
+    .flat { color: var(--muted); }
+    .equity { display: block; width: 100%; height: auto; margin: 28px 0 0; }
+    .equity-line { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+    .equity-base { stroke: var(--line); stroke-width: 1; stroke-dasharray: 4 4; }
+    .note { margin-top: 14px; font-size: 12px; }
+    .row-pnl {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 13px;
+      text-align: right;
+    }
+
     .audit-row {
       display: grid;
-      grid-template-columns: 180px minmax(0, 1fr) auto;
+      grid-template-columns: 180px minmax(0, 1fr) 120px auto;
       gap: 20px;
       align-items: center;
       padding: 17px 0;
@@ -137,7 +150,7 @@
       .controls { grid-template-columns: repeat(2, 1fr); }
       .controls div:not(:nth-child(3n + 1)) { padding-left: 0; border-left: 0; }
       .controls div:nth-child(even) { padding-left: 16px; border-left: 1px solid var(--line); }
-      .audit-row { grid-template-columns: 1fr auto; }
+      .audit-row { grid-template-columns: 1fr auto auto; }
       .audit-row span:nth-child(2) { display: none; }
       footer { display: block; }
     }
@@ -159,6 +172,11 @@
           <a href="#architecture">Architecture</a>
         </div>
       </div>
+
+      <section id="performance">
+        <h2>Performance</h2>
+        <!-- PERFORMANCE -->
+      </section>
 
       <section id="architecture">
         <h2>Architecture</h2>
@@ -281,13 +299,15 @@
       <section>
         <h2>Risk controls</h2>
         <dl class="controls">
-          <div><dt>Entry size</dt><dd>15 contracts</dd></div>
+          <div><dt>Max entry size</dt><dd>{{MAX_CONTRACTS}} contracts</dd></div>
           <div><dt>Expiry</dt><dd>1–5 DTE</dd></div>
-          <div><dt>Daily loss limit</dt><dd>10%</dd></div>
-          <div><dt>Premium stop</dt><dd>−35%</dd></div>
-          <div><dt>Break-even trigger</dt><dd>+20%</dd></div>
-          <div><dt>Profit target</dt><dd>+50%</dd></div>
+          <div><dt>Daily loss limit</dt><dd>{{DAILY_LOSS}}</dd></div>
+          <div><dt>Premium stop</dt><dd>{{PREMIUM_STOP}}</dd></div>
+          <div><dt>Break-even trigger</dt><dd>{{BREAKEVEN}}</dd></div>
+          <div><dt>Profit target</dt><dd>{{PROFIT_TARGET}}</dd></div>
         </dl>
+        <p class="muted note">The agent sizes each entry itself, up to the cap. Sessions before
+        4 September ran a fixed 15 contracts.</p>
       </section>
 
       <section id="audits">

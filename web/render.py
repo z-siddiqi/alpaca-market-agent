@@ -51,6 +51,15 @@ def percent(value: Any) -> str:
         return "—"
 
 
+def signed(value: Any) -> str:
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        return '<span class="muted">—</span>'
+    tone = "gain" if amount > 0 else "loss" if amount < 0 else "flat"
+    return f'<span class="{tone}">{amount:+,.2f}</span>'
+
+
 def et_time(value: Any) -> str:
     if not value:
         return "—"
@@ -271,6 +280,47 @@ def render_trades(trades: list[dict[str, Any]]) -> str:
     """
 
 
+def render_broker_record(fills: dict[str, Any] | None) -> str:
+    rows = (fills or {}).get("fills") or []
+    if not rows:
+        return '<p class="muted">No broker fills on this session.</p>'
+    body = "".join(
+        f"""
+        <tr>
+          <td>{et_time(fill.get("filledAt"))}</td>
+          <td>{text(fill.get("side"))}</td>
+          <td>{text(fill.get("symbol"))}</td>
+          <td>{text(fill.get("quantity"))}</td>
+          <td>{money(fill.get("price"))}</td>
+          <td>{signed(fill.get("cashDelta"))}</td>
+        </tr>
+        """
+        for fill in rows
+    )
+    recorded = fills.get("recordedDailyPnl")
+    tie = (
+        '<span class="gain">matches</span>'
+        if fills.get("matchesStored")
+        else '<span class="loss">does not match</span>'
+        if recorded is not None
+        else '<span class="muted">nothing stored to compare</span>'
+    )
+    return f"""
+    <table class="trades-table">
+      <thead><tr><th>Filled</th><th>Side</th><th>Contract</th><th>Quantity</th><th>Price</th><th>Cash</th></tr></thead>
+      <tbody>{body}</tbody>
+    </table>
+    <dl class="tieout">
+      <dt>From fills</dt><dd>{signed(fills.get("realizedPnl"))}</dd>
+      <dt>Fees on {fills.get("contractLegs", 0)} contracts</dt><dd>{money(fills.get("estimatedFees"))}</dd>
+      <dt>Net</dt><dd>{signed(fills.get("netPnl"))}</dd>
+      <dt>Stored session P&amp;L</dt><dd>{signed(recorded)} · {tie}</dd>
+    </dl>
+    <p class="muted note">Fills come straight from Alpaca. Where a tick has no stored
+    evaluation, this is what the broker says happened.</p>
+    """
+
+
 def render_tick(record: dict[str, Any], position_events: list[str]) -> str:
     if is_missing(record):
         return render_missing_tick(record)
@@ -346,7 +396,10 @@ def render_tick(record: dict[str, Any], position_events: list[str]) -> str:
 
 
 def render_page(
-    day: date, decisions: list[dict[str, Any]], narrative: dict[str, Any] | None
+    day: date,
+    decisions: list[dict[str, Any]],
+    narrative: dict[str, Any] | None,
+    fills: dict[str, Any] | None,
 ) -> str:
     decisions = sorted(decisions, key=lambda row: str(row.get("tickId")))
     recorded = [record for record in decisions if not is_missing(record)]
@@ -366,6 +419,7 @@ def render_page(
         for record in decisions
     )
     trades_html = render_trades(trades)
+    broker_html = render_broker_record(fills)
     generated_at = datetime.now(ET).strftime("%Y-%m-%d %H:%M:%S ET")
 
     return f"""<!doctype html>
@@ -407,6 +461,13 @@ def render_page(
     th {{ color:var(--muted); font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; }}
     td {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }}
     .note {{ margin-top:8px; font-size:11px; }}
+    .gain {{ color:var(--accent); }}
+    .loss {{ color:#a4423a; }}
+    .flat {{ color:var(--muted); }}
+    .tieout {{ display:grid; grid-template-columns:260px 1fr; margin:20px 0 0; }}
+    .tieout dt,.tieout dd {{ padding:8px 0; border-bottom:1px solid var(--line); }}
+    .tieout dt {{ color:var(--muted); }}
+    .tieout dd {{ margin:0; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }}
     ul {{ margin:6px 0; padding-left:20px; }}
     .tick {{ border-top:1px solid var(--line); }}
     .tick:last-child {{ border-bottom:1px solid var(--line); }}
@@ -467,6 +528,8 @@ def render_page(
   <section class="narrative"><div>{narrative_html}</div><div><h4>Selected levels</h4><pre>{levels}</pre></div></section>
   <h2>Trades</h2>
   <section>{trades_html}</section>
+  <h2>Broker record</h2>
+  <section>{broker_html}</section>
   <h2>Tick timeline</h2>
   <section>{ticks or '<p class="muted">No completed ticks stored for this session.</p>'}</section>
   <footer><span>Scheduled ticks with no stored evaluation are shown as placeholder rows.</span><span>Paper trading only · Not investment advice</span></footer>
@@ -488,35 +551,135 @@ def is_scheduled_tick(tick_id: str, day: date) -> bool:
     return first <= minutes <= last and minutes % TICK_INTERVAL_MINUTES == 0
 
 
-def render_index(destination: Path) -> None:
+def starting_equity(decisions: dict[date, list[dict[str, Any]]]) -> float:
+    for day in sorted(decisions):
+        for record in sorted(decisions[day], key=lambda row: str(row.get("tickId"))):
+            if is_missing(record):
+                continue
+            account = (record.get("context") or {}).get("account") or {}
+            if account.get("sessionStartingEquity") is not None:
+                return float(account["sessionStartingEquity"])
+    return 0.0
+
+
+def equity_curve(fills: dict[date, dict[str, Any]], opening: float) -> list[tuple[date, float]]:
+    equity = opening
+    curve: list[tuple[date, float]] = []
+    for day in sorted(fills):
+        equity += float(fills[day].get("netPnl") or 0)
+        curve.append((day, equity))
+    return curve
+
+
+def render_equity_curve(curve: list[tuple[date, float]], opening: float) -> str:
+    values = [opening, *(equity for _, equity in curve)]
+    if len(values) < 2:
+        return ""
+    low, high = min(values), max(values)
+    span = (high - low) or 1.0
+    width, height, pad = 960.0, 132.0, 14.0
+    step = width / (len(values) - 1)
+
+    def y_at(value: float) -> float:
+        return height - pad - (value - low) / span * (height - 2 * pad)
+
+    points = " ".join(f"{i * step:.1f},{y_at(v):.1f}" for i, v in enumerate(values))
+    return f"""
+        <svg class="equity" viewBox="0 0 {width:.0f} {height:.0f}" role="img"
+             aria-label="Account equity across {len(curve)} sessions">
+          <line class="equity-base" x1="0" y1="{y_at(opening):.1f}"
+                x2="{width:.0f}" y2="{y_at(opening):.1f}"/>
+          <polyline class="equity-line" points="{points}"/>
+        </svg>
+    """
+
+
+def render_performance(fills: dict[date, dict[str, Any]], opening: float) -> str:
+    curve = equity_curve(fills, opening)
+    if not curve or not opening:
+        return '<p class="empty">No settled sessions yet.</p>'
+    closing = curve[-1][1]
+    total = closing - opening
+    traded = {day: float(row.get("netPnl") or 0) for day, row in fills.items() if row.get("fills")}
+    best = max(traded.items(), key=lambda item: item[1], default=None)
+    worst = min(traded.items(), key=lambda item: item[1], default=None)
+    winners = sum(1 for value in traded.values() if value > 0)
+    return f"""
+        <dl class="controls">
+          <div><dt>Starting equity</dt><dd>{money(opening)}</dd></div>
+          <div><dt>Current equity</dt><dd>{money(closing)}</dd></div>
+          <div><dt>Cumulative P&amp;L</dt><dd>{signed(total)} ({signed(total / opening * 100)}%)</dd></div>
+          <div><dt>Sessions traded</dt><dd>{len(traded)} of {len(curve)}</dd></div>
+          <div><dt>Best session</dt><dd>{signed(best[1]) if best else "—"}</dd></div>
+          <div><dt>Worst session</dt><dd>{signed(worst[1]) if worst else "—"}</dd></div>
+        </dl>
+        {render_equity_curve(curve, opening)}
+        <p class="muted note">Taken from Alpaca fills, after contract fees.
+        {winners} of {len(traded)} traded sessions closed positive.</p>
+    """
+
+
+def render_index(
+    destination: Path,
+    fills: dict[date, dict[str, Any]],
+    opening: float,
+    policy: dict[str, Any],
+) -> None:
     audits = sorted(destination.glob("????-??-??.html"), reverse=True)
-    rows = [
-        f"""
+    rows: list[str] = []
+    for audit in audits:
+        audit_date = date.fromisoformat(audit.stem)
+        session = fills.get(audit_date) or {}
+        pnl = signed(session["netPnl"]) if session.get("fills") else '<span class="muted">flat</span>'
+        rows.append(
+            f"""
             <a class="audit-row" href="{audit.name}">
-              <time datetime="{audit.stem}">{date.fromisoformat(audit.stem).strftime("%d %B %Y")}</time>
+              <time datetime="{audit.stem}">{audit_date.strftime("%d %B %Y")}</time>
               <span>SPY options · daily decision audit</span>
+              <span class="row-pnl">{pnl}</span>
               <span aria-hidden="true">Open ↗</span>
             </a>
             """
-        for audit in audits
-    ] or ['<p class="empty">No daily audits published yet.</p>']
+        )
+    if not rows:
+        rows.append('<p class="empty">No daily audits published yet.</p>')
+
+    def pct(key: str, fallback: float, sign: str = "") -> str:
+        value = policy.get(key)
+        return f"{sign}{float(fallback if value is None else value) * 100:.0f}%"
 
     rendered = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
     for placeholder, value in {
+        "{{MAX_CONTRACTS}}": str(int(policy.get("maxContracts") or 20)),
+        "{{DAILY_LOSS}}": pct("dailyLossFraction", 0.10),
+        "{{PREMIUM_STOP}}": pct("premiumStopFraction", 0.35, "−"),
+        "{{BREAKEVEN}}": pct("breakevenTriggerFraction", 0.20, "+"),
+        "{{PROFIT_TARGET}}": pct("profitTargetFraction", 0.50, "+"),
         "{{LATEST_AUDIT}}": audits[0].name if audits else "#audits",
         "{{AUDIT_COUNT}}": str(len(audits)),
+        "<!-- PERFORMANCE -->": render_performance(fills, opening),
         "<!-- AUDIT_LINKS -->": "".join(rows),
     }.items():
         rendered = rendered.replace(placeholder, value)
     (destination / "index.html").write_text(rendered, encoding="utf-8")
 
 
+async def load_policy(client: AsyncClient) -> dict[str, Any]:
+    snapshot = await client.collection("policy").document("current").get()
+    return snapshot.to_dict() or {} if snapshot.exists else {}
+
+
 async def load(
     client: AsyncClient, day: date | None
-) -> tuple[dict[date, list[dict[str, Any]]], dict[date, dict[str, Any]]]:
+) -> tuple[
+    dict[date, list[dict[str, Any]]],
+    dict[date, dict[str, Any]],
+    dict[date, dict[str, Any]],
+]:
     """Read decisions and narratives for one day, or for every stored day."""
     decisions: dict[date, list[dict[str, Any]]] = {}
     narratives: dict[date, dict[str, Any]] = {}
+    fills: dict[date, dict[str, Any]] = {}
 
     query = client.collection("decisions")
     if day is not None:
@@ -540,7 +703,18 @@ async def load(
             except ValueError:
                 continue
 
-    return decisions, narratives
+    if day is not None:
+        snapshot = await client.collection("fills").document(day.isoformat()).get()
+        if snapshot.exists:
+            fills[day] = snapshot.to_dict()
+    else:
+        async for snapshot in client.collection("fills").stream():
+            try:
+                fills[date.fromisoformat(snapshot.id)] = snapshot.to_dict()
+            except ValueError:
+                continue
+
+    return decisions, narratives, fills
 
 
 def render_day(
@@ -548,11 +722,12 @@ def render_day(
     destination: Path,
     decisions: list[dict[str, Any]],
     narrative: dict[str, Any] | None,
+    fills: dict[str, Any] | None,
 ) -> None:
     scheduled = [
         record for record in decisions if is_scheduled_tick(str(record.get("tickId") or ""), day)
     ]
-    destination.write_text(render_page(day, scheduled, narrative), encoding="utf-8")
+    destination.write_text(render_page(day, scheduled, narrative, fills), encoding="utf-8")
     print(f"wrote {destination} ({len(scheduled)} ticks)")
 
 
@@ -576,14 +751,15 @@ async def run(arguments: argparse.Namespace) -> None:
     day = None if arguments.all else arguments.date or datetime.now(ET).date()
     client = AsyncClient(project=project)
     try:
-        decisions, narratives = await load(client, day)
+        decisions, narratives, fills = await load(client, day)
+        policy = await load_policy(client)
     finally:
         client.close()
 
     if day is None:
         for existing in destination.glob("????-??-??.html"):
             existing.unlink()
-        days = sorted(decisions.keys() | narratives.keys())
+        days = sorted(decisions.keys() | narratives.keys() | fills.keys())
     else:
         days = [day]
 
@@ -593,9 +769,10 @@ async def run(arguments: argparse.Namespace) -> None:
             destination / f"{current.isoformat()}.html",
             decisions.get(current, []),
             narratives.get(current),
+            fills.get(current),
         )
 
-    render_index(destination)
+    render_index(destination, fills, starting_equity(decisions), policy)
 
     if arguments.publish:
         publish(project, arguments.channel)

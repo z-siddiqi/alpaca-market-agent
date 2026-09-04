@@ -51,55 +51,6 @@ A real-time OPRA request returned `403`. Alpaca's error says the OPRA agreement 
 
 Sources: [Alpaca data plans](https://docs.alpaca.markets/us/docs/about-market-data-api), [OPRA error explanation](https://forum.alpaca.markets/t/error-opra-agreement-is-not-signed/18445)
 
-## Augur comparison
-
-Current Augur does not put a developing TPO distribution, live POC, VAH, or VAL into every trading tick.
-
-Its live snapshot contains:
-
-- current price
-- session high and low
-- initial balance and extensions
-- opening classification and opening context
-- recent regular-session bars
-
-Completed-session TPO/profile structure primarily informs the daily narrative and reference levels. The live agent interprets current bars and simple auction state against that plan.
-
-The options agent can follow the same shape. It does not need a live consolidated volume profile:
-
-```text
-completed SPY session from historical SIP
-  -> prior-session profile and seeded plan
-
-live SPY IEX bars
-  -> lean snapshot and five-minute evidence
-
-account, P&L, positions, orders, plan, and live snapshot
-  -> preloaded turn context
-
-agent
-  -> interpret the current auction against the plan
-  -> inspect option chains through MCP only for a qualified thesis
-```
-
-## Current direction
-
-The data subscription is sufficient for a paper-hackathon MVP without the $99 monthly upgrade.
-
-The selected design is:
-
-- SPY-native prior-session AMT plan
-- one Augur-style narrative generated from that session plus the current opening gap
-- preloaded account, P&L, daily-plan, and live-auction context
-- agent-owned interpretation and directional thesis
-- targeted option-chain inspection through Alpaca MCP
-- explicit option eligibility and risk policy
-- model-visible Alpaca MCP order tools
-- policy-sized long SPY calls or puts through Alpaca paper trading
-- Alpaca-reported orders, fills, and positions as execution truth
-
-Indicative quotes may not match the prices used by Alpaca's paper execution simulator. Option limit-price behavior therefore remains a risk even though the post-open chain is fresh and reasonably tight.
-
 ## Verified paper order lifecycle
 
 A one-contract SPY option lifecycle was completed in the competition paper account while the market was open:
@@ -116,19 +67,6 @@ The round trip reduced paper equity from $100,000 to $99,944.95. The $55 option-
 
 The test confirms that account state must remain authoritative: a submitted order cannot be treated as filled until Alpaca reports it, and an exit cannot be treated as complete until both the order and resulting position state reconcile.
 
-## Verified AI Gateway
-
-Cloudflare AI Gateway Unified Billing works with the configured account and token. No separate model-provider key is required.
-
-Ad hoc calls through Cloudflare's OpenAI-compatible endpoint confirmed:
-
-- successful third-party model inference
-- function/tool-call output
-- strict JSON Schema output
-- routing through the configured AI Gateway
-
-The probes used `openai/gpt-4.1-mini` only to validate the interface. Claude Sonnet is the selected production reasoning model.
-
 ## Verified Alpaca MCP
 
 The official `alpaca-mcp-server` package is currently version 2.3.0. With the initial account, trading, assets, stock-data, and options-data toolsets enabled, it exposes 53 tools.
@@ -144,12 +82,5 @@ Verified locally:
 - multi-leg orders support a caller-provided `client_order_id` for idempotency
 - order lookup, cancellation, replacement, position reads, and position closing are exposed
 
-This supports a simple runtime architecture: a Python service launches Alpaca MCP over local stdio, exposes a deliberately narrowed subset of its tools to the model, and calls the model through Cloudflare AI Gateway.
-
-## Remaining verification
-
-- marketable limit exits and stale-order replacement behavior
-- multi-contract single-leg submission, partial fills, cancellation, and closing
-- multi-leg debit-spread submission and cancellation
-- restart recovery from working-order and open-position states
-- competition leaderboard accounting and intervention rules
+The runtime launches Alpaca MCP over local stdio and exposes a deliberately
+narrowed subset of its tools to the model.

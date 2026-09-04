@@ -1,96 +1,109 @@
-# Alpaca Market Agent
+# Augur — Autonomous SPY Options Agent
 
-An autonomous, explainable SPY options agent for the Alpaca AI Trading Agents
-Hackathon.
+Augur is an autonomous trading agent that interprets the SPY auction, forms a
+falsifiable directional thesis, expresses qualified ideas through long SPY
+options, and publishes an audit of every decision. It operates only in a
+dedicated Alpaca paper account.
 
-The agent interprets the live SPY auction using Auction Market Theory (AMT),
-forms a falsifiable directional thesis, and expresses qualified ideas through a
-single long call or put in an Alpaca competition paper account.
+**Live audit → [augur-506910.web.app](https://augur-506910.web.app)**
 
-The model gathers evidence, interprets the market, selects and sizes an option,
-and calls Alpaca MCP trading tools directly. A compact trading mandate keeps its
-risk decisions explicit, while the dedicated paper account contains the
-experiment.
+## What it does
 
-## Status
+Shortly after the open, Augur builds a daily Auction Market Theory narrative
+from the previous SPY session. It calculates the prior session's TPO profile,
+point of control, value area, range, and initial balance from Alpaca market data,
+then combines those references with the current opening gap and first completed
+five-minute bar.
 
-The project is in early implementation. Account access, market-data paths,
-option-chain retrieval, Featherless inference, Alpaca MCP, and a paper option
-order lifecycle have been verified. The Python service generates and stores the
-prior-session Kimi narrative, assembles live turn context, and runs a validated DeepSeek
-evaluation with targeted Alpaca MCP tools. Decisions are stored in Firestore.
-Five-minute weekday evaluations are scheduled in GCP. Paper order submission
-is controlled by a deployment kill switch.
+From 09:40 to 15:55 ET, the agent evaluates the market every five minutes. Each
+turn begins with a fresh, timestamped snapshot of the account, positions,
+orders, P&L, recent SPY bars, daily narrative, and remaining risk. The model must
+classify the auction as balance, upward discovery, downward discovery, or
+unclear. A trade requires completed-bar evidence of acceptance or rejection at
+a named reference, an entry stated in SPY terms, a structural invalidation, and
+a reachable target. If the evidence is absent or contradictory, holding is the
+intended outcome.
 
-## Initial scope
+## How Augur uses Alpaca MCP
 
-- SPY and its listed options
-- long calls and puts with 1–5 days to expiration
-- fixed 15-contract entries and one open position at a time
-- five-minute or event-triggered agent evaluations
-- a preloaded turn context with account state, P&L, daily plan, and live auction state
-- targeted option-chain inspection through Alpaca MCP
-- explicit trading policy and direct Alpaca MCP paper execution
-- persistent, replayable decision and order traces
+Alpaca MCP is the agent's market-data and trading interface. The official
+`alpaca-mcp-server` runs over stdio as a local subprocess inside the same
+Cloud Run container as the reasoning service. There is no separately hosted
+MCP endpoint. The runtime starts the server with the paper-account credentials,
+retrieves its tool definitions, and exposes only a narrow allowlist to the model.
 
-The initial version excludes 0DTE contracts, short premium, multiple underlyings, autonomous
-rolls, and live-money trading.
+The model can use eight Alpaca MCP read tools to inspect option chains, exact
+contracts, quotes, snapshots, positions, and orders. It can use three write
+tools to cancel or replace an order and close a position. Option-data calls are
+forced onto Alpaca's indicative feed, and every MCP call is captured with its
+arguments, result, timestamp, and whether it was blocked.
 
-## Architecture
+Common account and SPY state takes a separate deterministic path through
+Alpaca's REST APIs. It is preloaded so the model cannot omit a buying-power,
+position, order, or loss check by simply choosing not to request it. MCP remains
+available for the targeted evidence that is relevant only after the model has a
+directional thesis, especially the option chain and exact contract snapshot.
 
-The runtime gives the model a timestamped snapshot of the state it needs on every
-turn, plus Alpaca MCP market and trading tools. The model can hold without making
-tool calls, inspect the option chain only after forming a thesis, and submit,
-replace, cancel, or close paper orders itself.
+An entry follows a deliberately constrained MCP workflow:
 
-Kimi K3 generates the daily narrative and DeepSeek V4 Flash runs trading evaluations
-through Featherless. Alpaca remains authoritative for market and account state;
-Alpaca MCP is the model's interface for targeted option data and paper trading.
+1. The model forms a SPY thesis before requesting any option data.
+2. It narrows the option chain through Alpaca MCP and selects a contract,
+   quantity, and limit price.
+3. It calls the local `validate_option_order` tool, which refreshes that exact
+   contract through Alpaca MCP and checks expiry, delta, quote freshness,
+   spread, buying power, and daily-loss headroom.
+4. The model returns a structured decision matching the successful validation.
+5. The runtime persists the trade plan, then calls Alpaca MCP's
+   `place_option_order` with that exact symbol, quantity, and price.
+6. Alpaca-reported orders, fills, and positions are reconciled as execution
+   truth; submission is never treated as a fill.
 
-## Run the narrative slice
+The model cannot call the entry tool with an unvalidated payload. Separating
+selection from dispatch preserves meaningful agent authority—the model owns the
+thesis, contract, size, and price—while preventing a malformed response or retry
+from changing the authorized order. For thesis-driven exits, cancellations, and
+replacements, the model calls the allowlisted Alpaca MCP write tools directly.
 
-```bash
-uv sync
-gcloud auth application-default login
-uv run uvicorn market_agent.service:app --reload
-```
+## Risk and operation
 
-After the first five-minute SPY bar completes, generate the session narrative:
+Every proposal is checked again after the model produces it. The initial policy
+is intentionally narrow:
 
-```bash
-curl -X POST http://localhost:8000/narratives/generate \
-  -H 'content-type: application/json' \
-  -d '{}'
-```
+| Control | Value |
+| --- | --- |
+| Underlying and structure | One long SPY call or put position |
+| Entry size | 1–20 contracts, agent-sized by conviction |
+| Expiry and delta | 1–5 DTE; 0.55–0.65 absolute delta |
+| Liquidity | Quote ≤5 seconds old; spread ≤$0.15 and ≤5% |
+| Daily loss limit | 10% of session-starting equity |
+| Position protection | −35% stop; break-even at +20%; exit at +50% |
 
-Pass `{"plan_date":"YYYY-MM-DD"}` to replay a completed session. The service
-uses historical SIP bars for the prior RTH profile, IEX bars for the opening gap,
-and Kimi K3 through Featherless for the Augur-style narrative and level
-map. Firestore uses Application Default Credentials locally and the Cloud Run
-service account when deployed. Create the project's default Firestore database
-in Native mode before running the endpoint, and set `GCP_PROJECT_ID` when it is
-not the project selected by your local credentials.
+A separate non-model watcher runs throughout the session. It reconciles Alpaca
+state, maintains the broker-native stop, moves it to break-even, enforces the
+profit and structural targets, and closes risk before the session ends. The
+five-minute service independently retains daily-loss and close backstops.
 
-Run one agent evaluation with:
+Excluded by design: 0DTE contracts, short premium, multiple underlyings,
+autonomous rolls, and live-money trading.
 
-```bash
-curl -X POST http://localhost:8000/ticks/evaluate
-```
+## Why it matters
 
-The endpoint assembles its context internally, allows targeted Alpaca MCP reads,
-and stores one immutable decision per five-minute slot. MCP order tools are
-model-visible but rejected locally unless `ORDER_SUBMISSION_ENABLED=true`.
+Augur's product is not merely an order; it is a replayable chain of evidence and
+action. Every completed evaluation is stored in Firestore with the context the
+model saw, its structured decision, validation results, MCP calls, orders, and
+fills. The public audit turns those records into a daily narrative and timeline,
+making three questions easy to answer:
 
-## Documentation
+1. What did the agent believe was happening?
+2. What evidence would have proved it wrong?
+3. Why did the system allow, reject, or close the risk?
 
-- [Product vision](docs/vision.md)
-- [Strategy](docs/strategy.md)
-- [Policy](docs/policy.md)
-- [Architecture](docs/architecture.md)
-- [Discovery findings](docs/discovery.md)
+DeepSeek V4 Pro generates the daily narrative and DeepSeek V4 Flash performs the
+intraday evaluations through Featherless. Alpaca is authoritative for all
+market, account, order, fill, and position state. Augur does not claim that a
+short paper-trading window proves profitability; it demonstrates a complete,
+inspectable autonomous options lifecycle built around Alpaca MCP.
 
-## Safety
-
-This project is designed for the dedicated Alpaca competition paper account. It
-is experimental software and is not intended for live-money trading or investment
-advice.
+Technical detail: [architecture](docs/architecture.md),
+[strategy](docs/strategy.md), [policy](docs/policy.md),
+[discovery](docs/discovery.md), and [deployment](deploy/README.md).

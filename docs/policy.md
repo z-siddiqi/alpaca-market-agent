@@ -1,15 +1,13 @@
 # Trading Policy
 
-Status: Draft
-
 ## Purpose
 
-This is the operating mandate the agent checks before using Alpaca MCP trading
-tools. It keeps risk decisions consistent and visible without putting a second
-approval service between the model and the paper account.
+This is the operating mandate applied before the runtime submits a validated
+entry or the agent uses an Alpaca MCP trading tool. It keeps risk decisions
+consistent and visible.
 
 The model must use current evidence, show its policy check in the decision record,
-and call Alpaca MCP itself. Common account and market evidence arrives in the
+and choose the exact entry proposal. Common account and market evidence arrives in the
 timestamped turn context; the model retrieves targeted state when that context is
 stale or insufficient. Missing, stale, or contradictory evidence means hold or
 cancel the entry.
@@ -21,7 +19,7 @@ cancel the entry.
 | Account mode | Competition paper account only |
 | Underlying | SPY only |
 | Structures | Long call or long put |
-| Quantity | 15 contracts per entry |
+| Quantity | 1–20 contracts, sized by model conviction |
 | Concurrent positions | One |
 | Concurrent working entries | One |
 | Days to expiration | 1–5 calendar DTE |
@@ -38,16 +36,9 @@ cancel the entry.
 | Post-close cooldown | 10 minutes |
 | Forced flatten | 15 minutes before the close |
 
-The one-position rule, fixed size, cooldown, confidence, reward, and macro-event
-controls follow the current Augur agent's operating shape. Augur repeatedly
-trades one ES contract rather than dividing its account into a finite number of
-allocations. This agent uses 15 option contracts as its reusable competition risk
-unit. Size does not fall after a loss or rise with confidence.
-
-The short competition deliberately accepts more variance than the longer-running
-Augur strategy. The daily equity-loss limit is therefore 10%, and profitable
-sessions remain uncapped. The 10-minute cooldown is unchanged: it gives the
-five-minute loop two newly completed bars before another entry can be considered.
+The daily equity-loss limit is 10%, and profitable sessions remain uncapped. The
+10-minute cooldown gives the five-minute loop two newly completed bars before
+another entry can be considered.
 
 On a normal SPY session, entries begin at 09:40 ET and end before 15:45 ET.
 Shortened sessions use the open and close reported by Alpaca.
@@ -71,13 +62,8 @@ request. It records that:
 - absolute delta is 0.55–0.65
 - the SPY thesis has an invalidation, target, and at least 1R reward:risk
 - confidence is at least 0.50
-- no protected red-impact macro window or kill switch is active
 - account equity is above the daily loss floor
-- the intended quantity is exactly 15 contracts and fits options buying power
-
-The macro calendar is loaded before the session. A non-cancelled red-impact event
-that applies to SPY, ES, or the broad US equity market blocks entries for its
-configured pre- and post-event window.
+- the intended quantity is between 1 and 20 contracts and fits options buying power
 
 ## Contract selection
 
@@ -92,7 +78,7 @@ Missing Greeks make a contract unsuitable for the initial strategy. The model
 does not replace delta with a moneyness guess.
 
 The model owns contract ranking and selection. Before submission, it passes the
-proposed action, symbol, fixed quantity, and limit price to the model-visible
+proposed action, symbol, quantity, and limit price to the model-visible
 `validate_option_order` tool. The tool refreshes metadata and a snapshot for that
 exact symbol and returns:
 
@@ -110,16 +96,12 @@ try again within the same turn.
 
 ## Position sizing
 
-Every new entry requests 15 contracts. At the target 0.60 absolute delta, that is
-about 900 SPY share-deltas and roughly 1.8 times the directional exposure of one
-ES contract. The comparison is approximate because option delta changes with SPY,
-time, and volatility.
-
-The selected contract's premium determines the debit and therefore the dollars
-at risk. Before submission, the agent records the total debit, the loss implied
-by the 35% premium circuit breaker, and the full-debit worst case. If 15 contracts
-do not fit current options buying power, it holds rather than silently reducing
-the competition risk unit.
+The model chooses between 1 and 20 contracts based on conviction; stronger
+evidence is required for a larger position. The selected contract's premium
+determines the debit and therefore the dollars at risk. Before submission, the
+agent records the total debit, the loss implied by the 35% premium circuit
+breaker, and the full-debit worst case. The chosen size must fit current options
+buying power.
 
 The daily loss floor includes realized and unrealized P&L. Reaching it means no
 new entries and an immediate exit attempt. For a session starting at $100,000,
@@ -131,7 +113,7 @@ trade-count cap, or competition-wide drawdown stop.
 
 - Use limit orders only.
 - Start at the current midpoint, rounded to a valid price increment.
-- Refresh the option quote and confirm that 15 contracts fit buying power
+- Refresh the option quote and confirm that the selected quantity fits buying power
   immediately before submission;
   refresh account or position state when its context timestamp is stale or a
   lifecycle event makes it ambiguous.
@@ -168,8 +150,8 @@ Normal exits begin with a limit at midpoint. After five seconds, the agent may
 replace it with a marketable limit at the refreshed bid and continues checking
 until Alpaca reports every contract flat.
 
-Exits are not blocked by entry-only rules such as the macro window, cooldown, or
-daily stops. The runtime begins forced liquidation fifteen minutes before the
+Exits are not blocked by entry-only rules such as cooldown or daily stops. The
+runtime begins forced liquidation fifteen minutes before the
 Alpaca-reported close and may use a market order when remaining open is the
 greater risk.
 

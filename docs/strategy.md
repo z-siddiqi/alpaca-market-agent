@@ -1,7 +1,5 @@
 # Strategy
 
-Status: Draft
-
 ## Purpose
 
 This document is the normative specification for the market interpretation the
@@ -88,8 +86,7 @@ outer selected row boundaries.
 
 ## Daily narrative
 
-The narrative preserves Augur's existing product shape rather than introducing
-a separate planning vocabulary. It contains:
+The daily narrative contains:
 
 - `Contextual Analysis & Plan`: two or three short paragraphs describing the
   prior auction and the relevance of the current opening gap
@@ -249,8 +246,8 @@ Every model turn returns one structured decision with:
 - policy result, when a proposal was evaluated
 - hold or rejection reasons
 
-Confidence must be at least 0.50 for an entry. It does not change position size or
-substitute for another policy requirement. The runtime records the
+Confidence must be at least 0.50 for an entry and informs position size, but it
+does not substitute for another policy requirement. The runtime records the
 decision and the evidence available at that time automatically; persistence does
 not depend on the model making a separate recording call.
 

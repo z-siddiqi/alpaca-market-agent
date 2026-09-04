@@ -1,7 +1,5 @@
 # Architecture
 
-Status: Draft
-
 ## System diagram
 
 ```mermaid
@@ -17,7 +15,7 @@ flowchart LR
     watcher <--> account
     watcher --> state
     runtime --> state
-    backstop["Kill switch and forced close"] --> mcp
+    backstop["Forced close"] --> mcp
 ```
 
 ## Preloaded turn context
@@ -33,7 +31,7 @@ context from durable state and fresh Alpaca reconciliation reads. It contains:
 - current SPY price, session range, initial balance, recent completed bars, and
   feed freshness
 - any unresolved thesis, decision, or order lifecycle state
-- the applicable trading mandate, kill-switch state, and provenance timestamps
+- the applicable trading mandate and provenance timestamps
 
 The snapshot is evidence, not a precomputed decision. Option-chain data is not
 preloaded: it is larger, changes quickly, and is irrelevant to most turns.
@@ -52,12 +50,12 @@ and before entries become eligible at 09:40 ET. Its only market inputs are:
 The generator calculates the prior-session profile, then DeepSeek V4 Pro chooses a
 `balanced`, `above_structure`, or `below_structure` map through a validation tool.
 Invalid shapes, ordering, or invented prices are returned to the model for correction.
-After its chosen map passes, the model writes the familiar `Contextual Analysis &
+After its chosen map passes, the model writes the `Contextual Analysis &
 Plan` and `Levels of Interest` Markdown. The completed narrative and structured
 levels are cached and preloaded on each trading turn.
 
-This slice does not load older sessions, retrieve similar narratives, or build a
-knowledge corpus. Level selection may be corrected twice after an invalid response; if it
+The generator does not load older sessions, retrieve similar narratives, or
+build a knowledge corpus. Level selection may be corrected twice after an invalid response; if it
 still fails, the agent receives the calculated profile without generated prose.
 
 ## Agent loop
@@ -112,7 +110,6 @@ The experiment remains confined to the dedicated competition paper account:
 
 - `ALPACA_PAPER_TRADE` must be true.
 - Order submission defaults to disabled and requires an explicit enable switch.
-- A durable kill switch prevents new model turns and cancels working entries.
 - The forced-close backstop begins fifteen minutes before the Alpaca-reported
   session close if a position remains open.
 - Every new order uses a deterministic `client_order_id` derived from its decision
@@ -126,8 +123,7 @@ policy or approval layer around the model.
 Alpaca reads reconcile state at the start of every turn and after each
 account-changing call. The runtime looks up a deterministic client order ID
 before retrying a lost submission. Partial fills become the authoritative
-position immediately, and a position is not flat until Alpaca says it is. A
-durable lease prevents concurrent turns from managing the account.
+position immediately, and a position is not flat until Alpaca says it is.
 
 When positioned, the reasoning runtime makes sure the initial protective sell
 stop exists before invoking the model. The watcher continuously reconciles that
@@ -179,11 +175,10 @@ delayed requests, and manual invocations do not depend on cron being market-awar
 | Position watcher | 09:35 ET weekdays | Cloud Run Job execution | Enabled |
 | Normal-session close backstop | 15:45 ET weekdays | `POST /positions/flatten` | Enabled |
 
-The tick endpoint will acquire a Firestore lease keyed by trading date and
-scheduled evaluation time before invoking the model. A retry or duplicate
-Scheduler delivery therefore returns the existing decision instead of starting
-a second turn. Narrative generation is similarly idempotent because its
-Firestore document is keyed by trading date and created only once.
+Each decision uses a deterministic ID keyed by trading date and scheduled
+evaluation time. A retry returns the existing decision rather than overwriting
+it. Narrative generation is similarly idempotent because its Firestore document
+is keyed by trading date and created only once.
 
 Each tick is self-contained: reconcile Alpaca account, order, position, clock,
 and market state; load the narrative and durable session state; run the model;
@@ -197,10 +192,9 @@ The watcher starts once each trading day, polls the active option quote and
 reconciles broker state until the session ends. Its separate image copies only
 `src/risk_watcher` and installs HTTP and Firestore runtime dependencies.
 
-The Python service exposes an HTTP generation endpoint and listens on the
-platform-provided `PORT`, making it suitable for Cloud Run. Firestore stores one
-immutable narrative document per trading date and will later hold decisions,
-order events, leases, and current runtime state.
+The Python service exposes HTTP endpoints and listens on the platform-provided
+`PORT`, making it suitable for Cloud Run. Firestore stores narratives,
+decisions, trade plans, policy, fills, and the position watcher's runtime lease.
 
 The `decisions` collection is heterogeneous. Most documents are `DecisionRecord`s
 written by `DecisionStore.put()`. A scheduled tick that never produced one is

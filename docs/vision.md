@@ -1,27 +1,25 @@
 # Product Vision
 
-Status: Draft
-
 ## Vision
 
 Build an autonomous SPY options agent that reasons and acts like a disciplined
 auction trader.
 
 The agent should turn live market evidence into a clear, falsifiable trade
-thesis, express qualified theses through SPY options, and make every decision
-understandable after the fact. It gathers evidence and executes through Alpaca
-MCP directly inside a dedicated paper account.
+thesis, express qualified theses through SPY options, and record each decision
+for later review. It gathers evidence and executes through Alpaca MCP directly
+inside a dedicated paper account.
 
 ## Hackathon Objective
 
-The immediate objective is a credible entry for the Alpaca AI Trading Agents Hackathon that:
+The immediate objective for the Alpaca AI Trading Agents Hackathon is to:
 
-- uses Alpaca's Trading API and MCP server or CLI
-- trades options in the dedicated competition paper account
-- operates autonomously during its scheduled window
-- demonstrates explicit AI reasoning and a visible risk policy
-- produces a concise, inspectable record of every hold, entry, and exit
-- is complete and reliable enough to accumulate meaningful paper-trading evidence during the event
+- use Alpaca's Trading API and MCP server or CLI
+- trade options in the dedicated competition paper account
+- operate autonomously during its scheduled window
+- demonstrate explicit AI reasoning and a visible risk policy
+- produce a record of every hold, entry, and exit
+- complete an end-to-end paper-trading lifecycle during the event
 
 The build window is 28 August–4 September 2026. Published judging emphasizes P&L and creativity or engagement, but the project will not pursue P&L by removing safety boundaries.
 
@@ -37,7 +35,7 @@ Many trading agents fail in one of two ways:
 
 Options make both problems more dangerous. A directionally correct idea can still lose because of poor contract selection, time decay, volatility, liquidity, or an unsuitable holding period.
 
-This project gives the model genuine responsibility. It interprets market
+The model interprets market
 structure, checks a concise trading policy, selects and sizes a contract, and
 calls Alpaca MCP trading tools itself. The paper account makes that autonomy
 appropriate for the hackathon.
@@ -126,7 +124,7 @@ account state from stale context.
 - thesis formation
 - entry-quality judgment
 - contract selection and position sizing
-- Alpaca MCP order submission, replacement, cancellation, and closing
+- exact entry proposals plus Alpaca MCP replacement, cancellation, and closing
 - an explanation of holds, entries, and discretionary exits
 
 The model directly uses selected Alpaca MCP read and write tools plus local
@@ -139,12 +137,11 @@ analysis helpers. Every write call is retained in the audit trace.
 - assembly of the timestamped turn context and daily narrative
 - durable decisions, tool calls, orders, and fills
 - idempotency and reconciliation after ambiguous responses
-- the kill switch and forced session close
+- forced session close
 
 The trading policy is part of the agent's operating mandate, not a second order-
 approval service. The MVP reconciles Alpaca state at the start of every scheduled
-turn and after account-changing calls. Always-on event streams can be added later
-if five-minute reconciliation proves insufficient.
+turn and after account-changing calls.
 
 ## Product Principles
 
@@ -152,7 +149,7 @@ if five-minute reconciliation proves insufficient.
 
 The agent should retrieve missing evidence or hold. Confidence is not a substitute for market, quote, position, or account data.
 
-### Autonomy should be visible
+### Explicit agent actions
 
 The model should visibly retrieve evidence, make the decision, and call the
 trading tool. Infrastructure supports the loop rather than impersonating the
@@ -172,7 +169,8 @@ Inputs, tool results, reasoning fields, policy decisions, orders, fills, and exi
 
 ### Narrow scope creates reliability
 
-One underlying, long premium, one open position, and a small action space are features of the first version, not shortcomings.
+The first version is limited to one underlying, long premium, one open position,
+and a small action space.
 
 ## MVP Scope
 
@@ -196,7 +194,6 @@ The first complete product includes:
 
 The MVP will not include:
 
-- ES or MES market data or execution
 - a corpus, embeddings, or retrieval pipeline
 - multiple underlyings
 - naked short options
@@ -206,67 +203,24 @@ The MVP will not include:
 - live-money trading
 - claims of profitability based on a short paper-trading window
 
-Bull-call and bear-put debit spreads are the first extension after the single-leg order and position lifecycle is reliable.
+## System characteristics
 
-## Differentiation
-
-The project is not a generic finance chatbot and not an LLM wrapped around a buy/sell tool. Its differentiators are:
+The system has the following characteristics:
 
 - native AMT reasoning over live SPY structure
 - an agent that receives common evidence and selectively retrieves what it needs
 - direct model use of Alpaca MCP market and trading tools
 - option selection tied to the expected underlying move and holding period
 - a decision trace that explains both trades and rejected trades
-- a paper-contained system that remains legible under uncertainty
-
-## Success Criteria
-
-### Submission success
-
-- Meets all published competition requirements.
-- Completes at least one end-to-end qualifying option lifecycle in paper trading.
-- Demonstrates the Trading API and MCP server or CLI in the submitted product.
-- Produces the required one-page explanation from implemented behavior.
-
-### Product success
-
-- Every scheduled turn produces a valid structured decision.
-- Every order is preceded by a recorded risk check over fresh account and quote
-  state.
-- Duplicate turns cannot create duplicate positions.
-- Restarting the runtime does not lose authoritative order or position state.
-- Every entry has a recorded SPY invalidation, target, maximum risk, and session deadline.
-- The forced-close path is tested before unattended operation.
-- Holds and rejected proposals are as inspectable as executed trades.
-
-### Evaluation success
-
-- Paper fills and option marks use actual Alpaca responses rather than fabricated prices.
-- Results distinguish realized P&L from open mark-to-market P&L.
-- Performance reporting includes drawdown and risk taken, not only gross return.
-- Replays preserve the information that was available at decision time.
+- operation confined to a paper account
 
 ## Primary Risks
 
 - The competition data entitlement provides live IEX equity data and indicative option quotes rather than live consolidated SIP and OPRA coverage.
 - Option Greeks may be absent, especially near expiration or for illiquid contracts.
 - Paper fills may not represent live execution quality.
-- SPY profile parameters copied from ES may create noisy or misleading structure.
+- The selected SPY profile parameters may create noisy or misleading structure.
 - A one-week event provides too little evidence to validate profitability.
 - Tool or network failure during an autonomous turn could leave stale assumptions unless the runtime fails closed.
 
-These risks should be made visible in the product rather than hidden in the presentation.
-
-## Beyond the Hackathon
-
-If the core lifecycle proves reliable, the product can evolve toward:
-
-- debit spreads selected from the same underlying thesis
-- volatility-aware structure selection
-- calibrated SPY day-type and similar-session models
-- richer macro-event handling
-- comparative evaluation of model interpretations
-- additional liquid option underlyings
-- supervised live deployment with stricter operational controls
-
-The long-term product remains the same: an explainable market-interpretation agent whose freedom to reason is greater than its freedom to risk capital.
+These risks are documented in the product rather than hidden in the presentation.

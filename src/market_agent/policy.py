@@ -1,6 +1,6 @@
 import math
 import re
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Any
 
@@ -12,6 +12,9 @@ from market_agent.models import (
     TickContext,
     ToolCallRecord,
 )
+
+EVALUATION_OPENS = time(9, 40)
+EVALUATION_CLOSES = time(15, 55)
 
 FIXED_OPTION_QUANTITY = 15
 DAILY_LOSS_FRACTION = 0.10

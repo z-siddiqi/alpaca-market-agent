@@ -12,6 +12,7 @@ from market_agent.models import (
     DecisionRecord,
     GenerateNarrativeRequest,
     NarrativeRecord,
+    SkippedTick,
     TradePlan,
 )
 from market_agent.narrative import (
@@ -27,7 +28,13 @@ from market_agent.policy import (
 )
 from market_agent.risk import PositionRiskManager, forced_exit_record
 from market_agent.storage import DecisionStore, NarrativeStore, TradePlanStore
-from market_agent.tick import TickContextBuilder, build_entry_window, parse_clock, tick_id
+from market_agent.tick import (
+    TickContextBuilder,
+    build_entry_window,
+    evaluation_skip_reason,
+    parse_clock,
+    tick_id,
+)
 
 settings = Settings()
 alpaca = AlpacaClient(settings)
@@ -100,11 +107,19 @@ async def generate_narrative(request: GenerateNarrativeRequest) -> NarrativeReco
     return await store.put(narrative)
 
 
-@app.post("/ticks/evaluate", response_model=DecisionRecord)
-async def evaluate_tick() -> DecisionRecord:
+@app.post("/ticks/evaluate", response_model=DecisionRecord | SkippedTick)
+async def evaluate_tick() -> DecisionRecord | SkippedTick:
     try:
         context = await tick_context_builder.build()
         current_tick_id = tick_id(context.evaluated_at)
+        skip_reason = evaluation_skip_reason(context)
+        if skip_reason is not None:
+            return SkippedTick(
+                tick_id=current_tick_id,
+                trading_date=context.trading_date,
+                evaluated_at=context.evaluated_at,
+                reason=skip_reason,
+            )
         reconciliation = await risk_manager.reconcile(context)
         context = reconciliation.context
         existing = await decision_store.get(current_tick_id)

@@ -18,6 +18,8 @@ from market_agent.models import (
 )
 from market_agent.policy import (
     DAILY_LOSS_FRACTION,
+    EVALUATION_CLOSES,
+    EVALUATION_OPENS,
     PREMIUM_BREAKER_FRACTION,
 )
 from market_agent.storage import NarrativeStore, TradePlanStore
@@ -173,9 +175,18 @@ def mandatory_order_cancellations(
     ]
 
 
+def evaluation_skip_reason(context: TickContext) -> str | None:
+    if not context.clock.is_open:
+        return "market closed"
+    evaluated = context.evaluated_at.astimezone(ET).time()
+    if not EVALUATION_OPENS <= evaluated <= EVALUATION_CLOSES:
+        return f"outside {EVALUATION_OPENS:%H:%M}-{EVALUATION_CLOSES:%H:%M} ET"
+    return None
+
+
 def build_entry_window(clock: MarketClockState) -> EntryWindow:
     local = clock.timestamp.astimezone(ET)
-    entry_opens = datetime.combine(local.date(), time(9, 40), ET)
+    entry_opens = datetime.combine(local.date(), EVALUATION_OPENS, ET)
     session_close = clock.next_close.astimezone(ET)
     entry_closes = session_close - timedelta(minutes=15)
     if not clock.is_open:

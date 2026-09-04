@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
 from pydantic.alias_generators import to_camel
 
 
@@ -149,8 +149,16 @@ class CamelModel(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
 
+class SkippedTick(CamelModel):
+    tick_id: str
+    trading_date: date
+    evaluated_at: datetime
+    reason: str
+    skipped: Literal[True] = True
+
+
 class MarketClockState(CamelModel):
-    timestamp: datetime
+    timestamp: AwareDatetime
     is_open: bool
     next_open: datetime
     next_close: datetime
@@ -274,7 +282,7 @@ class TradePlan(CamelModel):
 
 
 class TickContext(CamelModel):
-    evaluated_at: datetime
+    evaluated_at: AwareDatetime
     trading_date: date
     paper_account: Literal[True] = True
     clock: MarketClockState

@@ -25,9 +25,10 @@ from market_agent.policy import (
     PREMIUM_BREAKER_FRACTION,
     PREMIUM_BREAKEVEN_TRIGGER_FRACTION,
     PREMIUM_PROFIT_TARGET_FRACTION,
+    policy_snapshot,
 )
 from market_agent.risk import PositionRiskManager, forced_exit_record
-from market_agent.storage import DecisionStore, NarrativeStore, TradePlanStore
+from market_agent.storage import DecisionStore, NarrativeStore, PolicyStore, TradePlanStore
 from market_agent.tick import (
     TickContextBuilder,
     build_entry_window,
@@ -45,10 +46,12 @@ decision_store = DecisionStore(settings.gcp_project_id)
 trade_plan_store = TradePlanStore(settings.gcp_project_id)
 tick_context_builder = TickContextBuilder(alpaca, store, trade_plan_store)
 risk_manager = PositionRiskManager(settings, alpaca)
+policy_store = PolicyStore(settings.gcp_project_id)
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    await policy_store.put(policy_snapshot())
     yield
     await alpaca.close()
     await generator.close()

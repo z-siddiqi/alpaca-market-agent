@@ -17,6 +17,7 @@ from market_agent.models import (
     MarketClockState,
     TickContext,
 )
+from market_agent.policy import MAX_OPTION_QUANTITY
 
 
 class FakeMcpResult:
@@ -142,7 +143,7 @@ def test_runtime_submits_only_the_validated_option_order() -> None:
     order = {
         "symbol": "SPY260831P00771000",
         "side": "buy",
-        "qty": "15",
+        "qty": str(MAX_OPTION_QUANTITY),
         "type": "limit",
         "time_in_force": "day",
         "limit_price": "2.52",
@@ -158,7 +159,7 @@ def test_runtime_submits_only_the_validated_option_order() -> None:
             {
                 "action": "buy_put",
                 "symbol": order["symbol"],
-                "quantity": 15,
+                "quantity": MAX_OPTION_QUANTITY,
                 "limit_price": 2.52,
             },
         )
@@ -176,7 +177,7 @@ def test_runtime_submits_only_the_validated_option_order() -> None:
         invalidation_price=101,
         target_price=99,
         option_symbol=order["symbol"],
-        quantity=15,
+        quantity=MAX_OPTION_QUANTITY,
         limit_price=2.53,
     )
     with pytest.raises(ValueError, match="limit price"):
@@ -224,7 +225,7 @@ def test_native_option_stop_payload() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert json.loads(request.content) == {
             "symbol": "SPY260901C00650000",
-            "qty": "15",
+            "qty": str(MAX_OPTION_QUANTITY),
             "side": "sell",
             "type": "stop",
             "time_in_force": "day",
@@ -242,7 +243,7 @@ def test_native_option_stop_payload() -> None:
     result = asyncio.run(
         client.submit_option_stop(
             symbol="SPY260901C00650000",
-            quantity=15,
+            quantity=MAX_OPTION_QUANTITY,
             stop_price=2.6,
             client_order_id="augur-stop-test",
         )

@@ -16,12 +16,24 @@ from market_agent.models import (
 EVALUATION_OPENS = time(9, 40)
 EVALUATION_CLOSES = time(15, 55)
 
-FIXED_OPTION_QUANTITY = 15
+MAX_OPTION_QUANTITY = 20
 DAILY_LOSS_FRACTION = 0.10
 PREMIUM_BREAKER_FRACTION = 0.35
 PREMIUM_BREAKEVEN_TRIGGER_FRACTION = 0.20
 PREMIUM_PROFIT_TARGET_FRACTION = 0.50
 MAXIMUM_QUOTE_AGE_SECONDS = 5
+def policy_snapshot() -> dict[str, Any]:
+    return {
+        "maxContracts": MAX_OPTION_QUANTITY,
+        "dailyLossFraction": DAILY_LOSS_FRACTION,
+        "premiumStopFraction": PREMIUM_BREAKER_FRACTION,
+        "breakevenTriggerFraction": PREMIUM_BREAKEVEN_TRIGGER_FRACTION,
+        "profitTargetFraction": PREMIUM_PROFIT_TARGET_FRACTION,
+        "evaluationOpens": EVALUATION_OPENS.strftime("%H:%M"),
+        "evaluationCloses": EVALUATION_CLOSES.strftime("%H:%M"),
+    }
+
+
 OPTION_SYMBOL = re.compile(r"^SPY(?P<expiration>\d{6})(?P<right>[CP])\d{8}$")
 
 
@@ -59,13 +71,14 @@ def validate_option_order(
             else "daily loss limit has been reached"
         ),
     )
+    within_cap = 1 <= proposal.quantity <= MAX_OPTION_QUANTITY
     check(
-        "fixed_quantity",
-        proposal.quantity == FIXED_OPTION_QUANTITY,
+        "quantity_within_cap",
+        within_cap,
         (
-            f"quantity is the fixed {FIXED_OPTION_QUANTITY}-contract risk unit"
-            if proposal.quantity == FIXED_OPTION_QUANTITY
-            else f"quantity must be exactly {FIXED_OPTION_QUANTITY} contracts"
+            f"{proposal.quantity} contracts within the {MAX_OPTION_QUANTITY}-contract cap"
+            if within_cap
+            else f"quantity must be 1 to {MAX_OPTION_QUANTITY} contracts"
         ),
     )
 

@@ -92,6 +92,25 @@ class DecisionStore:
         return self._client
 
 
+class PolicyStore:
+    def __init__(self, project: str | None = None, client: AsyncClient | None = None) -> None:
+        self.project = project or None
+        self._client = client
+
+    async def put(self, snapshot: dict[str, object]) -> None:
+        await self._firestore.collection("policy").document("current").set(snapshot)
+
+    def close(self) -> None:
+        if self._client is not None:
+            self._client.close()
+
+    @property
+    def _firestore(self) -> AsyncClient:
+        if self._client is None:
+            self._client = AsyncClient(project=self.project)
+        return self._client
+
+
 class TradePlanStore:
     def __init__(self, project: str | None = None, client: AsyncClient | None = None) -> None:
         self.project = project or None
